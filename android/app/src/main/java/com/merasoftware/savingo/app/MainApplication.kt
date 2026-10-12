@@ -29,6 +29,7 @@ class MainApplication : Application(), ReactApplication {
             add(VersionInfoPackage())
             add(AccountShortcutPackage())
             add(ScheduledAlarmPackage())
+            add(ChatDraftPackage())
           }
 
       override fun getJSMainModuleName(): String = "index"

@@ -118,6 +118,18 @@ export const initChatDatabase = () => {
     )
   `);
 
+  database.execute(`
+    CREATE TABLE IF NOT EXISTS receipt_queue (
+      owner_uid TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      sender_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('delivered', 'read')),
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      next_retry_at INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (owner_uid, message_id)
+    )
+  `);
+
   // Legacy DB migration: add next_retry_at if table already exists without it.
   try {
     database.execute('ALTER TABLE message_queue ADD COLUMN next_retry_at INTEGER');
@@ -290,7 +302,7 @@ export const insertMessage = (messageData) => {
 export const getMessageById = (messageId) => {
   const database = getDB();
   const result = database.execute(
-    'SELECT message_id FROM messages WHERE message_id = ? LIMIT 1',
+    'SELECT * FROM messages WHERE message_id = ? LIMIT 1',
     [messageId]
   );
   return result.rows?._array?.[0] || null;
@@ -328,11 +340,135 @@ export const getMessages = (conversationId, limit = null, offset = 0) => {
  */
 export const updateMessageStatus = (messageId, status) => {
   const database = getDB();
-
+  const ranks = {pending: 0, sending: 0, queued: 0, failed: 0, accepted: 1, pushed: 1, sent: 1, delivered: 2, read: 3};
+  if (!Object.prototype.hasOwnProperty.call(ranks, status)) {
+    return;
+  }
   database.execute(
-    'UPDATE messages SET delivery_status = ? WHERE message_id = ?',
-    [status, messageId]
+    `UPDATE messages SET delivery_status = ? WHERE message_id = ?
+     AND CASE delivery_status
+       WHEN 'read' THEN 3 WHEN 'delivered' THEN 2
+       WHEN 'sent' THEN 1 WHEN 'accepted' THEN 1 WHEN 'pushed' THEN 1
+       ELSE 0 END <= ?`,
+    [status, messageId, ranks[status]]
   );
+};
+
+// Persist the message and its retry obligation together, before network I/O.
+export const saveOutgoingMessage = (message, payload) => {
+  const database = getDB();
+  database.execute('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    insertMessage(message);
+    queueMessage(message.messageId, message.receiverId, {
+      ...payload,
+      messageId: message.messageId,
+      senderId: message.senderId,
+      timestamp: message.timestamp,
+    });
+    updateConversation(message.conversationId, {
+      lastMessageText: message.messageText,
+      lastMessageTimestamp: message.timestamp,
+    });
+    database.execute('COMMIT');
+  } catch (error) {
+    database.execute('ROLLBACK');
+    throw error;
+  }
+};
+
+export const saveIncomingMessage = (message, policy) => {
+  const database = getDB();
+  database.execute('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    insertMessage(message);
+    queueDeliveryReceipt(message.receiverId, message.senderId, message.messageId, policy.receiptStatus);
+    updateConversation(message.conversationId, {
+      lastMessageText: message.messageText,
+      lastMessageTimestamp: message.timestamp,
+      unreadCount: policy.incrementUnread ? 'INCREMENT' : 0,
+    });
+    database.execute('COMMIT');
+  } catch (error) {
+    database.execute('ROLLBACK');
+    throw error;
+  }
+};
+
+export const hasQueuedDeliveryWork = ownerUid => Boolean(
+  getDB().execute(
+    `SELECT 1 FROM message_queue q JOIN messages m ON m.message_id = q.message_id
+     WHERE m.sender_id = ?
+     UNION ALL SELECT 1 FROM receipt_queue WHERE owner_uid = ? LIMIT 1`,
+    [ownerUid, ownerUid],
+  ).rows?._array?.length,
+);
+
+export const queueDeliveryReceipt = (ownerUid, senderId, messageId, status) => {
+  if (!ownerUid || !senderId || !messageId || !['delivered', 'read'].includes(status)) {
+    throw new Error('Invalid delivery receipt');
+  }
+  getDB().execute(
+    `INSERT INTO receipt_queue (owner_uid, message_id, sender_id, status)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(owner_uid, message_id) DO UPDATE SET
+       next_retry_at = CASE WHEN receipt_queue.status <> 'read' AND excluded.status = 'read'
+         THEN 0 ELSE receipt_queue.next_retry_at END,
+       retry_count = CASE WHEN receipt_queue.status <> 'read' AND excluded.status = 'read'
+         THEN 0 ELSE receipt_queue.retry_count END,
+       status = CASE WHEN receipt_queue.status = 'read' THEN 'read' ELSE excluded.status END`,
+    [ownerUid, messageId, senderId, status],
+  );
+};
+
+export const getPendingReceipts = ownerUid =>
+  getDB().execute(
+    'SELECT * FROM receipt_queue WHERE owner_uid = ? AND next_retry_at <= ? LIMIT 100',
+    [ownerUid, Date.now()],
+  ).rows?._array || [];
+
+// messages is keyed by message_id; its implicit rowid is the stable page cursor.
+export const getMessagesAwaitingRead = (ownerUid, afterId = 0) =>
+  getDB().execute(
+    `SELECT rowid AS id, message_id, conversation_id FROM messages
+     WHERE sender_id = ? AND delivery_status <> 'read' AND rowid > ?
+     ORDER BY rowid LIMIT 100`, [ownerUid, afterId],
+  ).rows?._array || [];
+
+export const completeDeliveryReceipt = receipt => {
+  // A delivered response must not delete a read receipt queued during the request.
+  getDB().execute(
+    'DELETE FROM receipt_queue WHERE owner_uid = ? AND message_id = ? AND status = ?',
+    [receipt.owner_uid, receipt.message_id, receipt.status],
+  );
+};
+
+export const deferDeliveryReceipt = (receipt, delayMs) => {
+  getDB().execute(
+    `UPDATE receipt_queue SET retry_count = retry_count + 1, next_retry_at = ?
+     WHERE owner_uid = ? AND message_id = ? AND status = ?`,
+    [Date.now() + delayMs, receipt.owner_uid, receipt.message_id, receipt.status],
+  );
+};
+
+export const markConversationReadWithReceipts = (conversationId, ownerUid) => {
+  const database = getDB();
+  database.execute('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    // No receipt-limit: every unread incoming row creates a durable obligation.
+    const rows = database.execute(
+      `SELECT message_id, sender_id FROM messages
+       WHERE conversation_id = ? AND receiver_id = ? AND is_read = 0`,
+      [conversationId, ownerUid],
+    ).rows?._array || [];
+    rows.forEach(row => queueDeliveryReceipt(ownerUid, row.sender_id, row.message_id, 'read'));
+    markConversationAsRead(conversationId);
+    database.execute('COMMIT');
+    return rows;
+  } catch (error) {
+    database.execute('ROLLBACK');
+    throw error;
+  }
 };
 
 /**
@@ -537,7 +673,8 @@ export const queueMessage = (messageId, receiverId, messageData) => {
   database.execute(
     `INSERT INTO message_queue
      (message_id, conversation_id, receiver_id, message_data, retry_count, last_retry_at, next_retry_at, created_at)
-     VALUES (?, ?, ?, ?, 0, ?, ?, ?)`,
+     SELECT ?, ?, ?, ?, 0, ?, ?, ?
+     WHERE NOT EXISTS (SELECT 1 FROM message_queue WHERE message_id = ?)`,
     [
       messageId,
       messageData.conversationId,
@@ -546,6 +683,7 @@ export const queueMessage = (messageId, receiverId, messageData) => {
       0,
       now,
       now,
+      messageId,
     ]
   );
 };
@@ -553,17 +691,18 @@ export const queueMessage = (messageId, receiverId, messageData) => {
 /**
  * Get pending messages for retry
  */
-export const getPendingMessages = () => {
+export const getPendingMessages = ownerUid => {
   const database = getDB();
   const now = Date.now();
 
   const result = database.execute(
     `SELECT *
      FROM message_queue
-     WHERE retry_count < 3
+     WHERE message_id IN (SELECT message_id FROM messages WHERE sender_id = ?)
+       AND queue_id IN (SELECT MIN(queue_id) FROM message_queue GROUP BY message_id)
        AND (next_retry_at IS NULL OR next_retry_at <= ?)
-     ORDER BY created_at ASC`,
-    [now]
+     ORDER BY created_at ASC LIMIT 100`,
+    [ownerUid || '', now]
   );
 
   return result.rows?._array || [];
@@ -576,6 +715,26 @@ export const removeFromQueue = (queueId) => {
   const database = getDB();
 
   database.execute('DELETE FROM message_queue WHERE queue_id = ?', [queueId]);
+};
+
+export const removeMessageFromQueue = messageId => {
+  getDB().execute('DELETE FROM message_queue WHERE message_id = ?', [messageId]);
+};
+
+export const recoverOutgoingQueue = ownerUid => {
+  const rows = getDB().execute(
+    `SELECT * FROM messages WHERE sender_id = ?
+     AND delivery_status IN ('pending', 'sending', 'queued')
+     AND message_id NOT IN (SELECT message_id FROM message_queue)`,
+    [ownerUid],
+  ).rows?._array || [];
+  rows.forEach(row => queueMessage(row.message_id, row.receiver_id, {
+    messageId: row.message_id, conversationId: row.conversation_id,
+    senderId: row.sender_id, receiverId: row.receiver_id,
+    messageText: row.message_text, messageType: row.message_type,
+    imageUri: row.image_uri, transactionRequestData: row.transaction_request_data,
+    timestamp: row.timestamp,
+  }));
 };
 
 /**
@@ -716,6 +875,7 @@ export const clearChatData = () => {
   database.execute('DELETE FROM messages');
   database.execute('DELETE FROM user_cache');
   database.execute('DELETE FROM message_queue');
+  database.execute('DELETE FROM receipt_queue');
 
   console.log('Chat data cleared');
 };

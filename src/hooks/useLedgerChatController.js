@@ -55,11 +55,7 @@ const useLedgerChatController = ({
   setIsAppUser,
   setConversationId,
   setLoadingChat,
-  messageText,
-  setMessageText,
-  setSendingMessage,
   setUnifiedTimeline,
-  chatInputRef,
   showToast,
   loadUnifiedTimeline,
   writeContactIdentityCache,
@@ -620,14 +616,13 @@ const useLedgerChatController = ({
     return peerUserIdRef.current;
   }, []);
 
-  const handleSendMessage = useCallback(async ({conversationId}) => {
+  const handleSendMessage = useCallback(async ({conversationId, text, consumed, pressedAt}) => {
     perfLog('chat:send-press', {
-      hasText: Boolean(messageText.trim()),
       hasConversationId: Boolean(conversationId),
       hasAppUser: Boolean(appUser),
     });
     if (
-      !messageText.trim() ||
+      typeof text !== 'string' ||
       !conversationId ||
       !appUser
     ) {
@@ -641,11 +636,12 @@ const useLedgerChatController = ({
       return;
     }
 
-    chatInputRef.current?.focus();
-    setSendingMessage(true);
-    const now = Date.now();
+    const messageValue = text.trim();
+    if (!consumed || !messageValue) {
+      return;
+    }
+    const now = Number(pressedAt) || Date.now();
     const messageId = `msg_${now}_${Math.random().toString(36).substr(2, 9)}`;
-    const messageValue = messageText.trim();
 
     const optimisticMessage = {
       id: `msg-${messageId}`,
@@ -662,13 +658,9 @@ const useLedgerChatController = ({
       },
     };
 
-    console.log('[BUBBLE_TRACE] T1 optimistic-add', {t: Date.now(), msgId: messageId, prevCount: 'pending'});
     setUnifiedTimeline(prev => {
-      console.log('[BUBBLE_TRACE] T2 setUnifiedTimeline-called', {t: Date.now(), prevCount: prev?.length ?? 0});
       return [optimisticMessage, ...(prev || [])];
     });
-    setMessageText('');
-    console.log('[BUBBLE_TRACE] T4 before-sendMessageToUser', {t: Date.now()});
 
     try {
       await sendMessageToUser(appUser.firebaseUid || appUser.userId, {
@@ -687,9 +679,7 @@ const useLedgerChatController = ({
           return [phone, normalized, `+91${normalized}`].filter(Boolean);
         })(),
       });
-      console.log('[BUBBLE_TRACE] T5 sendMessageToUser-done', {t: Date.now()});
       await loadUnifiedTimeline(conversationId);
-      console.log('[BUBBLE_TRACE] T6 loadUnifiedTimeline-done (success)', {t: Date.now()});
     } catch (error) {
       console.error('Failed to send message:', error);
       if (error?.code === 'RECEIVER_UNAVAILABLE') {
@@ -722,24 +712,18 @@ const useLedgerChatController = ({
         showToast('Failed to send message', 'error');
       }
       await loadUnifiedTimeline(conversationId);
-    } finally {
-      setSendingMessage(false);
     }
   }, [
     appUser,
-    chatInputRef,
     contact,
     currentUserId,
     getContactPhone,
     loadUnifiedTimeline,
-    messageText,
     normalizePhoneNumber,
     perfLog,
     saveCachedChatIdentity,
-    setMessageText,
     setAppUser,
     setIsAppUser,
-    setSendingMessage,
     setUnifiedTimeline,
     showToast,
     applyIdentityPayload,

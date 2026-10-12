@@ -1,17 +1,19 @@
-import React from 'react';
-import {TextInput, TouchableOpacity} from 'react-native';
+import React, {useCallback, useRef, useState} from 'react';
+import {findNodeHandle, requireNativeComponent, TextInput} from 'react-native';
 import {AvoidSoftInputView} from 'react-native-avoid-softinput';
-import Icon from 'react-native-vector-icons/Ionicons';
+import ioniconsGlyphs from 'react-native-vector-icons/glyphmaps/Ionicons.json';
 import {spacing} from '../../utils/theme';
 import {useTheme} from '../../context/ThemeContext';
+
+const NativeChatSendButton = requireNativeComponent('ChatSendButton');
+const sendGlyph = String.fromCodePoint(ioniconsGlyphs.send);
 
 const ChatComposer = ({
   styles,
   insetsBottom,
   chatInputRef,
-  messageText,
-  setMessageText,
-  sendingMessage,
+  draftRef,
+  sendAllowed,
   onSendPress,
   avoidOffset,
   onComposerLayout,
@@ -23,6 +25,14 @@ const ChatComposer = ({
   onInputBlur,
 }) => {
   const {colors} = useTheme();
+  const initialDraft = useRef(draftRef.current);
+  const [inputTag, setInputTag] = useState(null);
+  const bindInputRef = useCallback(input => {
+    chatInputRef.current = input;
+    if (input) {
+      setInputTag(findNodeHandle(input));
+    }
+  }, [chatInputRef]);
   return (
     <AvoidSoftInputView
     style={[
@@ -43,11 +53,13 @@ const ChatComposer = ({
     onSoftInputHidden={onSoftInputHidden}
     enabled>
     <TextInput
-      ref={chatInputRef}
+      ref={bindInputRef}
       style={styles.chatInput}
       placeholder="Type a message..."
-      value={messageText}
-      onChangeText={setMessageText}
+      defaultValue={initialDraft.current}
+      onChangeText={text => {
+        draftRef.current = text;
+      }}
       multiline
       blurOnSubmit={false}
       placeholderTextColor={colors.text.secondary}
@@ -56,16 +68,15 @@ const ChatComposer = ({
       onFocus={onInputFocus}
       onBlur={onInputBlur}
     />
-    <TouchableOpacity
+    <NativeChatSendButton
       style={styles.sendButton}
-      onPressIn={onSendPress}
-      disabled={!messageText.trim()}>
-      <Icon
-        name="send"
-        size={20}
-        color={messageText.trim() ? colors.primary : colors.text.light}
-      />
-    </TouchableOpacity>
+      inputTag={inputTag || 0}
+      sendAllowed={sendAllowed}
+      glyph={sendGlyph}
+      activeColor={colors.primary}
+      inactiveColor={colors.text.light}
+      onDraftSend={event => onSendPress(event.nativeEvent)}
+    />
     </AvoidSoftInputView>
   );
 };

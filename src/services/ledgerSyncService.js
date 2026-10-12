@@ -1,86 +1,165 @@
 import auth from '@react-native-firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {AppState} from 'react-native';
+import {deliveryFetch, deliveryRetryDelay} from './deliveryTransport';
 
 const API_URL = 'https://account-android-app-backend.vercel.app/api';
 const LEDGER_SYNC_QUEUE_KEY = 'ledgerSyncQueue:v1';
 const LEDGER_SYNC_ALL_ENTRIES_PREFIX = 'ledgerSyncAllEntries:';
-
-const getAuthToken = async () => {
-  const currentUser = auth().currentUser;
-  if (!currentUser) {
-    throw new Error('User not authenticated');
-  }
-  return currentUser.getIdToken();
-};
+let queueMutation = Promise.resolve();
+let processing = false;
+let retryTimer = null;
+const activeSends = new Map();
 
 const readQueue = async () => {
-  try {
-    const raw = await AsyncStorage.getItem(LEDGER_SYNC_QUEUE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error('Failed to read ledger sync queue:', error);
-    return [];
-  }
+  const raw = await AsyncStorage.getItem(LEDGER_SYNC_QUEUE_KEY);
+  const parsed = raw ? JSON.parse(raw) : [];
+  if (!Array.isArray(parsed)) throw new Error('Invalid ledger delivery queue');
+  return parsed;
 };
 
-const writeQueue = async queue => {
-  try {
-    await AsyncStorage.setItem(LEDGER_SYNC_QUEUE_KEY, JSON.stringify(queue));
-  } catch (error) {
-    console.error('Failed to write ledger sync queue:', error);
-  }
+// Never hold the storage lock over a network request. Apply removals/updates to
+// the latest queue so an event added during a send cannot be overwritten.
+const mutateQueue = operation => {
+  const task = queueMutation.then(async () => {
+    const queue = await readQueue();
+    const {next, result} = operation(queue);
+    await AsyncStorage.setItem(LEDGER_SYNC_QUEUE_KEY, JSON.stringify(next));
+    return result;
+  });
+  queueMutation = task.catch(() => {});
+  return task;
 };
 
 const isLedgerSyncEnabledForContact = async contactRecordId => {
-  const recordId = String(contactRecordId || '').trim();
-  if (!recordId) {
-    return true;
-  }
-  try {
-    const stored = await AsyncStorage.getItem(`${LEDGER_SYNC_ALL_ENTRIES_PREFIX}${recordId}`);
-    return stored !== '0';
-  } catch (error) {
-    console.error('Failed to read sync entries preference:', error);
-    return true;
-  }
+  const id = String(contactRecordId || '').trim();
+  return !id || (await AsyncStorage.getItem(`${LEDGER_SYNC_ALL_ENTRIES_PREFIX}${id}`)) !== '0';
 };
 
-const parseJsonResponseSafely = async response => {
-  const raw = await response.text();
-  if (!raw) {
-    return null;
-  }
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return {message: raw};
-  }
+const makeIdempotencyKey = event =>
+  `ledger:${String(event?.sourceUserId || '')}:${String(event?.originTxnId || '')}:${String(event?.op || 'create')}`;
+const queueKey = event => JSON.stringify([
+  String(event.sourceUserId || ''), String(event.peerUserId || ''),
+  event.idempotencyKey || makeIdempotencyKey(event),
+]);
+
+const scheduleRetry = async () => {
+  if (retryTimer || AppState.currentState !== 'active') return;
+  const uid = auth().currentUser?.uid;
+  if (!uid) return;
+  const queue = await readQueue();
+  const mine = queue.filter(item => item.sourceUserId === uid);
+  if (!mine.length || retryTimer) return;
+  const nextAt = Math.min(...mine.map(item => Number(item.nextRetryAt || 0)));
+  retryTimer = setTimeout(() => {
+    retryTimer = null;
+    if (AppState.currentState === 'active') {
+      void processPendingLedgerEvents().catch(error => console.error('Ledger retry failed:', error));
+    }
+  }, Math.max(1000, nextAt - Date.now()));
 };
 
 export const removeQueuedLedgerEventsForContact = async contactRecordId => {
   const target = String(contactRecordId || '').trim();
-  if (!target) {
-    return 0;
-  }
-  const queue = await readQueue();
-  if (!queue.length) {
-    return 0;
-  }
-  const next = queue.filter(item => String(item?.contactRecordId || '').trim() !== target);
-  const removed = queue.length - next.length;
-  if (removed > 0) {
-    await writeQueue(next);
-  }
-  return removed;
+  if (!target) return 0;
+  return mutateQueue(queue => {
+    const next = queue.filter(item => String(item.contactRecordId || '').trim() !== target);
+    return {next, result: queue.length - next.length};
+  });
 };
 
-const makeIdempotencyKey = event => {
-  const originTxn = String(event?.originTxnId || '');
-  const op = String(event?.op || 'create');
-  const source = String(event?.sourceUserId || '');
-  return `ledger:${source}:${originTxn}:${op}`;
+export const enqueueLedgerEvent = async event => {
+  const payload = {...event, idempotencyKey: event.idempotencyKey || makeIdempotencyKey(event)};
+  if (!payload.sourceUserId || !payload.peerUserId || !payload.originTxnId) {
+    throw new Error('Ledger delivery identity missing');
+  }
+  return mutateQueue(queue => {
+    const existing = queue.find(item => queueKey(item) === queueKey(payload));
+    if (existing) return {next: queue, result: existing};
+    const item = {...payload, queuedAt: Date.now(), retryCount: 0, nextRetryAt: 0};
+    return {next: [...queue, item], result: item};
+  });
+};
+
+const postLedgerEvent = async event => {
+  const user = auth().currentUser;
+  if (!user || user.uid !== event.sourceUserId) throw new Error('Ledger delivery session mismatch');
+  const token = await user.getIdToken();
+  if (auth().currentUser?.uid !== user.uid) throw new Error('Session changed');
+  const {response, body} = await deliveryFetch(`${API_URL}/ledger/sync`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token}`},
+    body: JSON.stringify(event),
+  });
+  if (auth().currentUser?.uid !== user.uid) throw new Error('Session changed');
+  if (!response.ok || body?.success !== true) {
+    throw new Error(body?.error || body?.message || `HTTP ${response.status}`);
+  }
+  // Legacy backend delivered means FCM accepted, not receiver acknowledgement.
+  // In particular, queued=true is NOT a durable handoff on that backend.
+  return {status: response.status, body, delivered: body.delivered === true && body.queued !== true};
+};
+
+const deliverQueuedEvent = item => {
+  const key = queueKey(item);
+  if (activeSends.has(key)) return activeSends.get(key);
+  const task = (async () => {
+    try {
+      const current = (await readQueue()).find(entry => queueKey(entry) === key);
+      if (!current) return {ok: false, skipped: true, reason: 'queue_removed'};
+      if (!(await isLedgerSyncEnabledForContact(item.contactRecordId))) {
+        await mutateQueue(queue => ({next: queue.filter(entry => queueKey(entry) !== key)}));
+        return {ok: false, sent: false, delivered: false, queued: false, skipped: true, reason: 'sync_disabled'};
+      }
+      const result = await postLedgerEvent(current);
+      if (result.delivered) {
+        await mutateQueue(queue => ({next: queue.filter(entry => queueKey(entry) !== key)}));
+        return {ok: true, sent: true, queued: false, ...result};
+      }
+      throw new Error('Backend has not handed ledger event to FCM');
+    } catch (error) {
+      await mutateQueue(queue => ({next: queue.map(entry => queueKey(entry) !== key ? entry : {
+        ...entry, retryCount: Number(entry.retryCount || 0) + 1,
+        nextRetryAt: Date.now() + deliveryRetryDelay(entry.retryCount),
+        lastError: String(error?.message || error),
+      })}));
+      return {ok: false, sent: false, delivered: false, queued: true, enqueued: true, error: String(error?.message || error)};
+    } finally {
+      activeSends.delete(key);
+      void scheduleRetry().catch(error => console.error('Ledger retry scheduling failed:', error));
+    }
+  })();
+  activeSends.set(key, task);
+  return task;
+};
+
+export const sendLedgerEvent = async (event, options = {}) => {
+  const withResult = options.withResult === true;
+  if (!(await isLedgerSyncEnabledForContact(event.contactRecordId))) {
+    return withResult ? {ok: false, sent: false, delivered: false, queued: false, skipped: true, reason: 'sync_disabled'} : false;
+  }
+  // A storage failure must reach the caller: do not claim a successful enqueue.
+  const item = await enqueueLedgerEvent(event);
+  const result = await deliverQueuedEvent(item);
+  return withResult ? result : result.sent === true;
+};
+
+export const processPendingLedgerEvents = async () => {
+  const uid = auth().currentUser?.uid;
+  if (!uid || processing) return;
+  processing = true;
+  try {
+    await queueMutation;
+    const queue = await readQueue();
+    for (const item of queue) {
+      if (auth().currentUser?.uid !== uid) break;
+      if (item.sourceUserId !== uid || Number(item.nextRetryAt || 0) > Date.now()) continue;
+      await deliverQueuedEvent(item);
+    }
+  } finally {
+    processing = false;
+    await scheduleRetry();
+  }
 };
 
 const packOriginTxnIdWithCreatedAt = (originTxnId, createdAt) => {
@@ -111,167 +190,6 @@ const normalizeEditHistoryPayload = value => {
   return list
     .map(item => Number(item))
     .filter(item => Number.isFinite(item) && item >= 0);
-};
-
-const postLedgerEvent = async event => {
-  const token = await getAuthToken();
-  const payload = {
-    ...event,
-    idempotencyKey: event.idempotencyKey || makeIdempotencyKey(event),
-  };
-
-  console.log('[LEDGER_SYNC][API] POST /api/ledger/sync -> request', {
-    originTxnId: payload.originTxnId,
-    sourceUserId: payload.sourceUserId,
-    peerUserId: payload.peerUserId,
-    type: payload.type || payload.entryType,
-    amount: payload.amount,
-  });
-
-  const response = await fetch(`${API_URL}/ledger/sync`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const body = await parseJsonResponseSafely(response);
-    console.log('[LEDGER_SYNC][API] POST /api/ledger/sync -> failed', {
-      status: response.status,
-      body,
-    });
-    const message = body?.error || body?.message || `HTTP ${response.status}`;
-    throw new Error(message);
-  }
-
-  const body = await parseJsonResponseSafely(response);
-
-  const queued = body?.queued === true;
-  const delivered = body?.delivered === true || (!queued && body?.success !== false);
-
-  console.log('[LEDGER_SYNC][API] POST /api/ledger/sync -> success', {
-    status: response.status,
-    originTxnId: payload.originTxnId,
-    queued,
-    delivered,
-  });
-  return {
-    ok: true,
-    status: response.status,
-    queued,
-    delivered,
-    body,
-  };
-};
-
-export const enqueueLedgerEvent = async event => {
-  const queue = await readQueue();
-  queue.push({
-    ...event,
-    idempotencyKey: event.idempotencyKey || makeIdempotencyKey(event),
-    queuedAt: Date.now(),
-    retryCount: Number(event.retryCount || 0),
-  });
-  await writeQueue(queue);
-};
-
-export const sendLedgerEvent = async (event, options = {}) => {
-  const withResult = options?.withResult === true;
-  const payload = {
-    ...event,
-    idempotencyKey: event.idempotencyKey || makeIdempotencyKey(event),
-  };
-  const syncEnabled = await isLedgerSyncEnabledForContact(payload.contactRecordId);
-  if (!syncEnabled) {
-    console.log('[LEDGER_SYNC] Event skipped - disabled for contact', {
-      originTxnId: payload.originTxnId,
-      contactRecordId: payload.contactRecordId || null,
-      peerUserId: payload.peerUserId,
-    });
-    if (withResult) {
-      return {
-        ok: false,
-        sent: false,
-        delivered: false,
-        queued: false,
-        skipped: true,
-        reason: 'sync_disabled',
-      };
-    }
-    return false;
-  }
-  try {
-    const apiResult = await postLedgerEvent(payload);
-    const delivered = apiResult?.delivered === true;
-    const queued = apiResult?.queued === true;
-    const sent = delivered && !queued;
-    console.log('[LEDGER_SYNC] Event sent successfully', {
-      originTxnId: payload.originTxnId,
-      peerUserId: payload.peerUserId,
-      delivered,
-      queued,
-    });
-    if (withResult) {
-      return {
-        ok: true,
-        sent,
-        delivered,
-        queued,
-        status: apiResult?.status || 200,
-        body: apiResult?.body || null,
-      };
-    }
-    return sent;
-  } catch (error) {
-    console.error('Ledger event sync failed, queued for retry:', error?.message || error);
-    await enqueueLedgerEvent(payload);
-    console.log('[LEDGER_SYNC] Event queued for retry', {
-      originTxnId: payload.originTxnId,
-      peerUserId: payload.peerUserId,
-    });
-    if (withResult) {
-      return {
-        ok: false,
-        sent: false,
-        delivered: false,
-        queued: true,
-        enqueued: true,
-        error: String(error?.message || error),
-      };
-    }
-    return false;
-  }
-};
-
-export const processPendingLedgerEvents = async () => {
-  const queue = await readQueue();
-  if (!queue.length) return;
-
-  const pending = [];
-  for (const item of queue) {
-    const syncEnabled = await isLedgerSyncEnabledForContact(item?.contactRecordId);
-    if (!syncEnabled) {
-      console.log('[LEDGER_SYNC] Dropped queued event - disabled for contact', {
-        originTxnId: item?.originTxnId || null,
-        contactRecordId: item?.contactRecordId || null,
-      });
-      continue;
-    }
-    try {
-      await postLedgerEvent(item);
-    } catch (error) {
-      pending.push({
-        ...item,
-        retryCount: Number(item.retryCount || 0) + 1,
-        lastError: String(error?.message || error),
-      });
-    }
-  }
-
-  await writeQueue(pending);
 };
 
 export const buildLedgerCreateEvent = params => {

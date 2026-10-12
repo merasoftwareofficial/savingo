@@ -1,5 +1,64 @@
 # CODE_AUDIT
 
+## Chat responsiveness — verified findings, 2026-10-12
+- Original controlled input had competing native typing and delayed JS clears. Example: native event count 16 preceded a clear command carrying count 12; ReactEditText rejects stale event-count updates. This explains retained text / letters joining during rapid sends. Native composing-span logs were -1 in the captured examples.
+- Moving draft consumption to an asynchronous native module improved performance but did not fix the physical send boundary or JS-driven button enablement; owner reproduced repeated letters and delayed button.
+- Final Android boundary is `ChatSendButtonManager.kt`: a TextWatcher enables/disables from actual input contents, touch reads and clears the same native input synchronously, and a non-coalescing direct event carries text and press time to JS. `ChatComposer.js` avoids per-keystroke screen state. `ChatDraftModule.kt` was removed.
+- The existing optimistic insertion, message IDs and durable DB/retry pipeline remain intact. Native clear does not mean network delivery completed; the queue is persisted in `sendMessageToUser` before transmission. DB-failure draft recovery is not newly implemented by this work.
+- Bubble cost was separately measured in development: initial layout callbacks were 427–934 ms after touch; list profiler peak was 251 ms. Row extraction alone was insufficient because date/time formatting still ran outside memoization (51 rows / 65 ms in one sample).
+- `LedgerMessageBubble.js` now receives primitive display/selection props; React.memo skips unchanged message bubbles, and useMemo avoids repeating date/time formatting for an unchanged timestamp. Existing selection callbacks are stable. Native composer and delivery services were not redesigned for the bubble work.
+- After this change, sampled new-bubble renders were approximately 16–34 ms, while development layout callbacks still lagged 205–446 ms. These are JS onLayout callbacks, not exact pixel presentation timestamps. Development/runtime overhead remained a hypothesis until a same-code release comparison.
+- Release build `3.0.0.14` / `114001` passed; installed package lacked DEBUGGABLE; owner replied “haan ab fast hai”. This supports release responsiveness improvement, but does not establish a numerical release latency or attribute all remaining development delay to a single cause.
+- New bubble/timeline components passed eslint. Screen has existing lint findings outside this change. Fast typing/send was owner-tested; draft back-press, selection and offline/reconnect acceptance were not separately confirmed by the latest brief reply. Delivery queue regression suite previously passed 23 tests during native send work.
+- Originals and measurements are in `../backup/fix11-bubble-timing`; native-boundary originals are in fix10. Temporary BUBBLE_TRACE / V11 profiler/layout probes were removed after the release test.
+
+
+## Ledger Talk delivery Phase 1 + 2 — verified 2026-10-10
+Supersedes the "backend not changed/deployed" notes in the 2026-10-09 section below.
+
+### Phase 1 — messaging lifecycle owned by the account (`App.tsx`)
+- **Root cause (proven):** `scheduleDashboardDeferredStartupWork` started `initMessagingService()` only when `navigationRef.getCurrentRoute().name === 'Home'`. `getCurrentRoute()` uses `findFocusedRoute()` and returns the nested tab (`Dashboard`); `Home` was visible ~270ms while the gate polled every 350ms. Device logs had no `✅ Messaging service initialized`.
+- **Effect before fix:** no foreground FCM listener (receipts/messages ignored while app open), no FCM token sync, no `recoverDeliveryInbox`, no AppState/network recovery listeners. Incoming chat arrived only via chat-open `/pending-sync`.
+- **Fix:** new `scheduleMessagingInitForUser(uid)`; `onAuthStateChanged` calls it next to `scheduleDashboardDeferredStartupWork()` (whose `uidOverride` param was removed). Keeps the 2.2s defer and `messagingInitForUidRef` guard; skips init if the UID changed before the timer fired; logout clears the pending timer; effect cleanup resets the guard so a re-subscribed auth listener can re-schedule. Update check / deferred ledger sync remain Dashboard-gated (unchanged).
+- **Verified:** device logs show init + token sync + inbox recovery; owner two-device test OK.
+
+### Phase 2A — sender status reconciliation (`chatDatabase.js`)
+- `getMessagesAwaitingRead`: was `SELECT id … AND id > ? ORDER BY id`; `messages` has no `id` column (PK `message_id`), so `recoverDeliveryInbox` threw `no such column: id` before calling `/messages/statuses` — missed receipt pushes could never be repaired. Now `SELECT rowid AS id … AND rowid > ? ORDER BY rowid`. Caller (`messagingService.recoverDeliveryInbox`, reads `row.id`) unchanged.
+- Test: `sender status recovery pages only own unread rows on the real messages schema` (failed with `no such column: id` before fix).
+
+### Phase 2B — bounded backend re-push (`backend/services/deliveryService.js`)
+- `dispatchOne` query adds `retryCount: {$not: {$gte: MAX_PUSH_ATTEMPTS}}` (`$not` also matches legacy rows without the field). `MAX_PUSH_ATTEMPTS = 10` (exported). Rows past the cap stay `accepted/pushed`, so `/messages/inbox` still returns them on next app start/reconnect.
+- `dispatchBatch` default budget 20000 → `DISPATCH_BUDGET_MS = 8000` (serverless invocation limit).
+- Test env: `tests/delivery.node.cjs` now uses `mongodb-memory-server` (devDependency) instead of a local `mongod.exe` that failed to start; the 7 existing backend tests executed for the first time and pass, plus new cap test (8/8).
+- Deployed: commit `f8e0a65`, Vercel.
+
+### Phase 2C — retry trigger
+- `POST /api/internal/delivery-dispatch` (guarded by `verifyCronSecret`, `routes/internal.js`) is called every minute by cron-job.org. `vercel.json` cron still runs only the daily `fcm-token-audit`. The same `CRON_SECRET` also guards `GET /fcm-token-audit` — rotate it if ever exposed.
+
+### Known gaps (not in this phase)
+- Receiver receipt retry runs only while app is foreground (`scheduleDeliveryRetry`); no Android WorkManager.
+- `backend/scripts/delivery-worker.js` (continuous worker) is unused on Vercel; cron replaces it.
+- Typing / "Updating ledger…" need an always-on host (Vercel has no persistent connections).
+
+## Identity & uninstall — verified findings 2026-10-10 (NOT fixed; redesign on hold pending owner approval)
+- **Phone wiped on one FCM error:** `fcmTokenState.markUserAsUninstalled` sets `appInstallState='uninstalled'` and phone `reclaimable` with `PHONE_RECLAIM_GRACE_MINUTES = 5`; `releaseExpiredPhoneOwnerships` (run lazily by `/auth/users-by-phones`, phone checks, daily audit) then sets `mobile=null`, `PhoneLink.isCurrent=false`, `setupComplete=false`. FCM "not registered" also occurs on data clear/reinstall/token rotation.
+- **Inconsistent meaning of `uninstalled`:** ledger push (`routes/ledger.js`), phone-claim push (`routes/auth.js` sendPush), and audit → uninstalled + phone release; chat dispatch → only nulls token; logout (`detachTokenForUser`) and same-device account switch (`detachTokenFromOtherUsers`) → `uninstalled` without uninstall.
+- **Inconsistent effect:** phone-claim/ledger pushes skip `uninstalled` users; chat `/send` does not check it; app `useMainChatSystemState` shows Invite for `uninstalled`.
+- **App resolver flips state:** `useLedgerChatController` persists `uninstalled` when phone lookup misses, but forces `INSTALLED` on cached-UID fallback.
+- **Discovery duplicates possible:** `/auth/users-by-phones` can emit `number_changed` and fallback `app_user` for the same phone (code path; not data-verified).
+- **Unique indexes likely missing:** `models/User.js` partial indexes use `$ne` (username, mobileNormalized, fcmToken); mongod 7.0 and 8.0 reject them ("Expression not supported in partial index"). Production index state not yet verified.
+- Proposed direction (owner decision pending): separate Account (UID) / Device reachability / Phone ownership; never release phone on token error; derive installed/uninstalled from device activity window. Step I-1 = stop phone release on token error and stop logout/switch marking uninstalled.
+
+## Ledger Talk local delivery foundation — verified 2026-10-09
+- `chatDatabase.js`: outgoing message + retry queue + conversation metadata commit in one SQLite transaction. Incoming message + receipt commit together. Receipt queue is account-scoped; read obligations cover all unread incoming rows and survive request failure. Status writes cannot downgrade delivered/read. Retry lookup no longer abandons rows after three failures; legacy sending/queued rows can reconstruct their missing queue entry.
+- `messagingService.js`: persists before network, validates delivery response, retains accepted-only local obligations against the current backend, prevents concurrent sends of one message, and drains due work on foreground reconnect/activation. A receiver acknowledgement avoids resending. Foreground retry timer runs only while account-owned chat work exists. Background WorkManager integration is not implemented yet.
+- `ledgerSyncService.js`: AsyncStorage queue mutations serialize; acknowledgement removes only the completed event from the latest queue. Events are persisted before POST, deduplicated by source/peer/idempotency identity, retained on backend queued responses, and sent only under matching account credentials. Ledger entry creation and outbox enqueue are still separate; atomic ledger commit/outbox remains pending.
+- `deliveryTransport.js`: shared 15-second deadline covers HTTP response headers and body; bounded retry backoff.
+- `chatSystem.js`: local read state and all required read receipts commit together; one callback starts the receipt drain.
+- Validation: 18 real-SQLite/mocked-network tests passed; Android production JS bundle passed; no new lint errors, 10 new no-void style warnings. No APK/device delivery claim is made.
+- Current backend was not changed or deployed in this stage. Durable backend delivery/inbox, status retention/reconciliation, typing, native background recovery, token/identity separation, backup-restore replay protection and two-device validation remain pending.
+- Paid/Get buttons, ledger database/calculations and ledger transaction command remain unchanged. Original versions of changed existing files are under `E:/savingo/backup/fix1`.
+
 Last updated: 2026-06-23 00:00:00 +05:30
 Scope: Android-focused full-repo audit for `E:\account-android-app`.
 Primary app: `AccountApp` (React Native Android). Secondary runtime: `backend` (Node/Express API used by app).

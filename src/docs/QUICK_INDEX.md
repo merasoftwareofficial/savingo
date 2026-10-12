@@ -1,5 +1,33 @@
 # QUICK_INDEX
 
+## Chat composer and bubble responsiveness — 2026-10-12
+- Android native send boundary: `android/app/src/main/java/com/merasoftware/savingo/app/ChatSendButtonManager.kt`, registered through `ChatDraftPackage.kt` / `MainApplication.kt`.
+- Draft ownership: `src/components/ledger/ChatComposer.js` uses an uncontrolled native TextInput and a ref for draft preservation; Android observes text, enables the button, snapshots and clears on touch, then emits a non-coalescing send event.
+- Local optimistic bubble: `src/hooks/useLedgerChatController.js`; durable message/retry queue remains in `messagingService.js` / `chatDatabase.js`.
+- Message row rendering: `src/components/ledger/LedgerMessageBubble.js` (memoized primitive props and timestamp-dependent date/time formatting), wired by `LedgerContactDetailScreen.js`.
+- Device validation: owner confirmed fast input/send without letter duplication after native fix; release APK later confirmed fast chat/bubbles. Draft-back and selection were requested but not independently confirmed in the reply.
+- Evidence/rollback: `../backup/fix8-chat-diagnosis`, `../backup/fix9-chat-draft`, `../backup/fix10-native-chat-send`, `../backup/fix11-bubble-timing` (paths relative to Frontend). Temporary timing probes removed.
+
+
+## Ledger Talk delivery — Phase 1 + 2 (2026-10-10, two-device tested by owner)
+- **Messaging init (Phase 1):** `App.tsx` → `scheduleMessagingInitForUser(uid)`, called from `onAuthStateChanged`. Before: init lived inside `scheduleDashboardDeferredStartupWork`, gated on `getCurrentRoute().name === 'Home'`; nested route reports `Dashboard`, so init (FCM foreground listener, token sync, inbox/status recovery) never ran. Now: tied to the signed-in UID, 2.2s deferred, guarded per UID, cancelled on logout/account change.
+- **Sender status recovery (2A):** `src/services/chatDatabase.js` → `getMessagesAwaitingRead`. Before: queried non-existent `messages.id` → `no such column: id`, so `recoverDeliveryInbox` aborted before `/messages/statuses`. Now: `rowid AS id`, paged by `rowid`. No schema change.
+- **Backend retry (2B):** `backend/services/deliveryService.js` → `MAX_PUSH_ATTEMPTS = 10` (~25 min backoff; row stays in `/inbox`), `DISPATCH_BUDGET_MS = 8000` for `dispatchBatch`. Before: unbounded re-push, 20s budget. Live on Vercel (commit `f8e0a65`).
+- **Retry trigger (2C):** cron-job.org job "Savingo delivery retry", every 1 min, `POST /api/internal/delivery-dispatch` with `Authorization: Bearer <CRON_SECRET>`. Vercel Hobby cron cannot run per minute. Secret stored only in Vercel env + cron-job.org header.
+- Tests: Frontend `node --test __tests__/delivery-foundation.node.cjs` (23 pass); Backend `node --test tests/delivery.node.cjs` (8 pass, uses `mongodb-memory-server`, never a real DB).
+- Backups: `../backup/fix4-messaging-init/`, `../backup/fix5-phase2/` (relative to Frontend root).
+- Still pending: identity/uninstall redesign (see CODE_AUDIT "Identity & uninstall — verified findings"), typing/"Updating ledger…" (needs always-on host), Android background receipt retry, ledger durability.
+
+## Ledger Talk delivery foundation (2026-10-09)
+- Local durable chat send/receive + receipt queue: `src/services/chatDatabase.js`.
+- Chat retry/session ownership/foreground recovery: `src/services/messagingService.js`.
+- Ledger queue serialization, persist-before-request, queued-response retention: `src/services/ledgerSyncService.js`.
+- Shared request/body deadline and retry delay: `src/services/deliveryTransport.js`.
+- Seen persists receipts for every unread incoming row: `src/services/chatSystem.js`.
+- Verification: `node --test __tests__/delivery-foundation.node.cjs` (18 tests passed); Android production JS bundle passed.
+- This is the local foundation only. Backend durable inbox/worker, realtime typing, native background delivery, identity separation and live device checks remain pending.
+- Paid/Get button handlers, ledger calculations, ledger DB and transaction command were not modified in this stage. Original files: `../backup/fix1/Frontend/` relative to Frontend project root.
+
 Last updated: 2026-06-23 00:00:00 +05:30
 Use this first. Detailed reference: `docs/CODE_AUDIT.md`.
 

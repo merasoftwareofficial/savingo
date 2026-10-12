@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef} from 'react';
-import {InteractionManager} from 'react-native';
+import {AppState, InteractionManager} from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import {
   clearCurrentOpenConversation,
@@ -27,12 +27,18 @@ const useLedgerConversationFocus = ({
       const parent = navigation.getParent();
       let deferredSyncTimer = null;
 
+      if (isScreenFocusedRef) isScreenFocusedRef.current = true;
+      const appStateSubscription = AppState.addEventListener('change', state => {
+        setActiveConversation({conversationId, contactRecordId, focused: true, visible: state === 'active'});
+        if (state === 'active') onScreenFocusSyncRef.current?.();
+      });
+
       setConversationScreenFocused(true);
       setActiveConversation({
         conversationId,
         contactRecordId,
         focused: true,
-        visible: true,
+        visible: AppState.currentState === 'active',
       });
       if (conversationId) {
         setCurrentOpenConversation(conversationId);
@@ -52,6 +58,8 @@ const useLedgerConversationFocus = ({
       });
 
       return () => {
+        if (isScreenFocusedRef) isScreenFocusedRef.current = false;
+        appStateSubscription.remove();
         hideTask.cancel();
         syncTask.cancel();
         if (deferredSyncTimer) {
@@ -64,7 +72,7 @@ const useLedgerConversationFocus = ({
           tabBarStyle: restoredTabBarStyle,
         });
       };
-    }, [navigation, restoredTabBarStyle, conversationId, contactRecordId]),
+    }, [navigation, restoredTabBarStyle, conversationId, contactRecordId, isScreenFocusedRef]),
   );
 
   useEffect(() => {
@@ -73,7 +81,7 @@ const useLedgerConversationFocus = ({
         conversationId,
         contactRecordId,
         focused: true,
-        visible: true,
+        visible: AppState.currentState === 'active',
       });
       if (conversationId) {
         setCurrentOpenConversation(conversationId);

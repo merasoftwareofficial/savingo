@@ -145,7 +145,7 @@ function AppContent() {
   );
 
   const scheduleDashboardDeferredStartupWork = useCallback(
-    (uidOverride = '') => {
+    () => {
       if (Platform.OS !== 'android' || !startupP0Ready || !isNavigationReady()) {
         return false;
       }
@@ -178,26 +178,35 @@ function AppContent() {
         }, 1400);
       }
 
-      const nextUid = String(uidOverride || auth().currentUser?.uid || '').trim();
-      if (
-        nextUid &&
-        messagingInitForUidRef.current !== nextUid &&
-        !startupDeferredMessagingTimerRef.current
-      ) {
-        messagingInitForUidRef.current = nextUid;
-        startupDeferredMessagingTimerRef.current = setTimeout(() => {
-          startupDeferredMessagingTimerRef.current = null;
-          initMessagingService().catch(error => {
-            messagingInitForUidRef.current = '';
-            console.error('[FCM] deferred init failed:', error);
-          });
-        }, 2200);
-      }
-
       return true;
     },
-    [initMessagingService, isDashboardReadyRoute, isNavigationReady, runUpdateCheck, startupP0Ready],
+    [isDashboardReadyRoute, isNavigationReady, runUpdateCheck, startupP0Ready],
   );
+
+  // Messaging belongs to the signed-in account, not to the focused screen:
+  // getCurrentRoute() returns the nested tab ('Dashboard'), so a route gate
+  // could miss 'Home' and leave FCM listeners/receipt recovery unregistered.
+  const scheduleMessagingInitForUser = useCallback((uid: string) => {
+    const nextUid = String(uid || '').trim();
+    if (!nextUid || messagingInitForUidRef.current === nextUid) {
+      return;
+    }
+    if (startupDeferredMessagingTimerRef.current) {
+      clearTimeout(startupDeferredMessagingTimerRef.current);
+    }
+    messagingInitForUidRef.current = nextUid;
+    startupDeferredMessagingTimerRef.current = setTimeout(() => {
+      startupDeferredMessagingTimerRef.current = null;
+      if (auth().currentUser?.uid !== nextUid) {
+        messagingInitForUidRef.current = '';
+        return;
+      }
+      initMessagingService().catch(error => {
+        messagingInitForUidRef.current = '';
+        console.error('[FCM] deferred init failed:', error);
+      });
+    }, 2200);
+  }, []);
 
   const normalizePhoneClaimModalState = useCallback(
     (claim: Record<string, any> | null | undefined): PhoneClaimModalState | null => {
@@ -1053,7 +1062,8 @@ function AppContent() {
               postLoginRequiredRoute,
             } = await getStartupSessionFlags();
             const nextUid = String(nextUser.uid).trim();
-            scheduleDashboardDeferredStartupWork(nextUid);
+            scheduleDashboardDeferredStartupWork();
+            scheduleMessagingInitForUser(nextUid);
             schedulePendingChatOpenIntent({
               launchSource: 'auth-state',
               authState: {authenticated: true},
@@ -1088,6 +1098,10 @@ function AppContent() {
             }
           } else {
             messagingInitForUidRef.current = '';
+            if (startupDeferredMessagingTimerRef.current) {
+              clearTimeout(startupDeferredMessagingTimerRef.current);
+              startupDeferredMessagingTimerRef.current = null;
+            }
             if (!startupRouteResolvedRef.current) {
               resolveStartupRouteAndIntents();
               return;
@@ -1124,6 +1138,8 @@ function AppContent() {
       if (startupDeferredMessagingTimerRef.current) {
         clearTimeout(startupDeferredMessagingTimerRef.current);
         startupDeferredMessagingTimerRef.current = null;
+        // The init never ran; let the re-subscribed auth listener schedule it.
+        messagingInitForUidRef.current = '';
       }
       if (pendingChatOpenScheduleTimerRef.current) {
         clearTimeout(pendingChatOpenScheduleTimerRef.current);
@@ -1147,6 +1163,7 @@ function AppContent() {
     runUpdateCheck,
     isNavigationReady,
     scheduleDashboardDeferredStartupWork,
+    scheduleMessagingInitForUser,
     schedulePendingChatOpenIntent,
     startupP0Ready,
   ]);

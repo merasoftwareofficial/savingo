@@ -1,6 +1,6 @@
+import {AppState} from 'react-native';
 import {
-  getUnreadIncomingMessages,
-  markConversationAsRead,
+  markConversationReadWithReceipts,
 } from './chatDatabase';
 import {clearChatThreadNotificationState} from './chatNotificationV2Service';
 
@@ -24,7 +24,7 @@ const buildSnapshot = () => ({
 });
 
 const isActiveStateVisible = () =>
-  Boolean(activeConversationState.focused && activeConversationState.visible);
+  Boolean(AppState.currentState === 'active' && activeConversationState.focused && activeConversationState.visible);
 
 const isMatchingActiveConversation = ({conversationId, contactRecordId} = {}) => {
   if (!isActiveStateVisible()) {
@@ -187,7 +187,6 @@ export const handleConversationSeen = async ({
   conversationId,
   selfUserId,
   sendReadReceipt,
-  receiptLimit = 100,
 } = {}) => {
   const convId = normalizeText(conversationId);
   const selfId = normalizeText(selfUserId);
@@ -195,11 +194,12 @@ export const handleConversationSeen = async ({
     return {marked: false, unreadCount: 0};
   }
 
-  const unreadIncoming = getUnreadIncomingMessages(convId, selfId, receiptLimit);
-  markConversationAsRead(convId);
+  const unreadIncoming = markConversationReadWithReceipts(convId, selfId);
 
   if (typeof sendReadReceipt === 'function') {
-    for (const message of unreadIncoming) {
+    // All receipts are already persisted atomically. One callback starts the
+    // shared queue drain; avoid re-enqueueing every successfully flushed row.
+    for (const message of unreadIncoming.slice(0, 1)) {
       const senderId = normalizeText(message?.sender_id);
       const messageId = normalizeText(message?.message_id);
       if (!senderId || !messageId) {

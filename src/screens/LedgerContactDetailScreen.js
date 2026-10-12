@@ -25,6 +25,7 @@ import ToggleSwitch from '../components/ui/ToggleSwitch';
 import DropdownPopup from '../components/ui/popups/DropdownPopup';
 import TapEffect from '../components/ui/TapEffect';
 import ChatComposer from '../components/ledger/ChatComposer';
+import LedgerMessageBubble from '../components/ledger/LedgerMessageBubble';
 import {
   deletedUiStyles,
   getDeletedIconColor,
@@ -70,6 +71,7 @@ import {
 import {useChatStore} from '../context/ChatStore';
 import useChatComposerLayout from '../hooks/useChatComposerLayout';
 import useLedgerChatController from '../hooks/useLedgerChatController';
+import {isInstalledAppUser} from '../services/ledgerChatIdentityService';
 import useLedgerSelectionMode from '../hooks/useLedgerSelectionMode';
 import useLedgerTransactionsController from '../hooks/useLedgerTransactionsController';
 import {useTheme} from '../context/ThemeContext';
@@ -334,8 +336,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     return null;
   });
   const [unifiedTimeline, setUnifiedTimeline] = useState([]);
-  const [messageText, setMessageText] = useState('');
-  const [sendingMessage, setSendingMessage] = useState(false);
+  const chatDraftRef = useRef('');
   const [loadingChat, setLoadingChat] = useState(false);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [hasLoadedTimeline, setHasLoadedTimeline] = useState(false);
@@ -503,7 +504,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
   }, [fallbackRoute, navigation, openMode, returnTo]);
 
   const markActiveConversationRead = useCallback(async reason => {
-    if (!conversationId || isAppUser !== true) {
+    if (!conversationId || isAppUser !== true || !isScreenFocusedRef.current || AppState.currentState !== 'active') {
       return;
     }
 
@@ -515,6 +516,9 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
       if (!selfUserId) {
         return;
       }
+
+      // Focus can change while the identity read above is awaiting storage.
+      if (!isScreenFocusedRef.current || AppState.currentState !== 'active') return;
 
       const result = await handleConversationSeen({
         conversationId,
@@ -582,7 +586,10 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     }
   };
 
-  const handleScreenFocusSync = async () => {};
+  const handleScreenFocusSync = async () => {
+    await markActiveConversationRead('screen-focus');
+    await runPendingSync('screen-focus');
+  };
 
   useLedgerConversationFocus({
     navigation,
@@ -865,7 +872,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
   }, [transactionModalVisible]);
 
   useEffect(() => {
-    console.log('[BUBBLE_TRACE] EFF1 conversationVersion-effect-fired', {t: Date.now(), conversationId, conversationVersion, isAppUser});
     if (conversationId && isAppUser === true) {
       markActiveConversationRead('conversation-effect');
       const cachedTimeline = readContactTimelineCache(contactRecordId);
@@ -887,7 +893,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
         isAppUser,
       });
       if (!timelineCacheFresh) {
-        console.log('[BUBBLE_TRACE] EFF2 effect-triggering-loadUnifiedTimeline', {t: Date.now(), conversationVersion, timelineCacheFresh});
         loadUnifiedTimeline(conversationId);
       } else {
         blinkLog('conversation-effect:skip-timeline-load', {
@@ -965,7 +970,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
         return true;
       }
       const inputFocused = Boolean(chatInputRef.current?.isFocused?.());
-      const hasDraftMessage = Boolean(String(messageText || '').trim());
+      const hasDraftMessage = Boolean(chatDraftRef.current.trim());
       perfLog('back:hardware-press', {
         inputFocused,
         hasDraftMessage,
@@ -985,7 +990,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     isSelectionMode,
     clearSelectionMode,
     handleDirectBackNavigation,
-    messageText,
   ]);
 
   useEffect(() => {
@@ -1041,9 +1045,9 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
 
     const timelineKey = `${contactRecordId}:${String(convId || 'null')}`;
     const now = Date.now();
-    console.log('[BUBBLE_TRACE] LT1 loadUnifiedTimeline-called', {t: now, convId, stack: new Error().stack?.split('\n')[2]?.trim()});
-    if (lastTimelineKeyRef.current === timelineKey && now - lastTimelineAtRef.current < 220) {
-      console.log('[BUBBLE_TRACE] LT2 loadUnifiedTimeline-SKIPPED-dedup', {t: now, sinceMs: now - lastTimelineAtRef.current});
+    if (lastTimelineKeyRef.current === timelineKey &&
+        conversationVersion === lastConversationVersionLoadedRef.current &&
+        now - lastTimelineAtRef.current < 220) {
       perfLog('loadUnifiedTimeline:skip-duplicate', {
         timelineKey,
         sinceMs: now - lastTimelineAtRef.current,
@@ -1070,7 +1074,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
       const sorted = [...(timeline || [])].sort(
         (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
       );
-      console.log('[BUBBLE_TRACE] LT3 applyTimelineState-called', {t: Date.now(), itemCount: sorted.length});
       applyTimelineState(sorted, true);
       dispatchLedgerDomainAction({
         type: LEDGER_ACTION_TYPES.UPSERT_TIMELINE,
@@ -1174,11 +1177,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     setIsAppUser,
     setConversationId,
     setLoadingChat,
-    messageText,
-    setMessageText,
-    setSendingMessage,
     setUnifiedTimeline,
-    chatInputRef,
     showToast,
     loadUnifiedTimeline,
     writeContactIdentityCache,
@@ -2347,83 +2346,23 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     contact?.recordID,
   ]);
 
-  // Render chat message bubble (using currentUserId from state)
-  const renderChatMessage = (message, currentUserId, showDate) => {
-    const isSent = message.sender_id === currentUserId;
+  const renderChatMessage = (message, userId, showDate) => {
     const messageId = getMessageId(message);
-    const isSelected = Boolean(messageId && selectedMessageIds[messageId]);
-    const deliveryStatus = String(message?.delivery_status || '').toLowerCase();
-    const showDoubleTick = deliveryStatus === 'delivered' || deliveryStatus === 'read';
-    const showSingleTick =
-      !showDoubleTick &&
-      (deliveryStatus === 'sent' ||
-        deliveryStatus === 'sending' ||
-        deliveryStatus === 'pending' ||
-        deliveryStatus === 'queued' ||
-        deliveryStatus === 'accepted' ||
-        deliveryStatus === 'pushed');
-    const tickIconName = showDoubleTick ? 'checkmark-done' : showSingleTick ? 'checkmark' : null;
-    const tickColor = deliveryStatus === 'read' ? '#38BDF8' : colors.text.light;
-
     return (
-      <View>
-        {showDate && (
-          <View style={styles.datePill}>
-            <Text style={styles.datePillText}>
-              {formatDateLabel(message.timestamp)}
-            </Text>
-          </View>
-        )}
-        <TapEffect
-          style={styles.chatRow}
-          onLongPress={() => enterSelectionMode(messageId)}
-          onPress={() => {
-            if (!isSelectionMode) {
-              return;
-            }
-            toggleMessageSelection(messageId);
-          }}
-          delayLongPress={250}>
-          <View
-            style={[
-              styles.messageSelectableRow,
-              isSent ? styles.messageSelectableRowSent : styles.messageSelectableRowReceived,
-            ]}>
-            {isSelectionMode ? (
-              <View
-                style={[
-                  styles.messageSelectionDot,
-                  isSelected && styles.messageSelectionDotSelected,
-                ]}>
-                {isSelected ? (
-                  <Icon name="checkmark" size={12} color={colors.white} />
-                ) : null}
-              </View>
-            ) : null}
-            <View
-              style={[
-                styles.chatBubble,
-                isSent ? styles.chatBubbleSent : styles.chatBubbleReceived,
-                isSelected && styles.chatBubbleSelected,
-              ]}>
-              <Text style={styles.chatMessageText}>{message.message_text}</Text>
-              <View style={styles.chatMetaRow}>
-                <Text style={styles.chatTime}>
-                  {formatTimeLabel(message.timestamp)}
-                </Text>
-                {isSent && tickIconName ? (
-                  <Icon
-                    name={tickIconName}
-                    size={14}
-                    color={tickColor}
-                    style={styles.chatTickIcon}
-                  />
-                ) : null}
-              </View>
-            </View>
-          </View>
-        </TapEffect>
-      </View>
+      <LedgerMessageBubble
+        messageId={messageId}
+        timestamp={message.timestamp}
+        text={message.message_text}
+        deliveryStatusValue={message.delivery_status}
+        isSent={message.sender_id === userId}
+        isSelected={Boolean(messageId && selectedMessageIds[messageId])}
+        isSelectionMode={isSelectionMode}
+        showDate={showDate}
+        styles={styles}
+        colors={colors}
+        enterSelectionMode={enterSelectionMode}
+        toggleMessageSelection={toggleMessageSelection}
+      />
     );
   };
 
@@ -2712,10 +2651,9 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
           styles={styles}
           insetsBottom={insets.bottom}
           chatInputRef={chatInputRef}
-          messageText={messageText}
-          setMessageText={setMessageText}
-          sendingMessage={sendingMessage}
-          onSendPress={() => chatHandleSendMessage({conversationId})}
+          draftRef={chatDraftRef}
+          sendAllowed={Boolean(conversationId && appUser && isInstalledAppUser(appUser))}
+          onSendPress={draft => chatHandleSendMessage({...draft, conversationId})}
           avoidOffset={chatInputAvoidOffset}
           onComposerLayout={handleComposerLayout}
           onSoftInputHeightChange={event => {

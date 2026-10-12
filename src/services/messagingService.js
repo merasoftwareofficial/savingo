@@ -1,5 +1,6 @@
 import messaging from '@react-native-firebase/messaging';
 import auth from '@react-native-firebase/auth';
+import {deliveryFetch, deliveryRetryDelay} from './deliveryTransport';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { chatStore } from '../context/ChatStore';
 import {DeviceEventEmitter, AppState, Platform} from 'react-native';
@@ -9,17 +10,21 @@ import {
 } from './ledgerDatabase';
 import {
   initChatDatabase,
+  saveOutgoingMessage,
+  saveIncomingMessage,
+  hasQueuedDeliveryWork,
+  removeMessageFromQueue,
+  recoverOutgoingQueue,
+  queueDeliveryReceipt,
+  getPendingReceipts,
+  completeDeliveryReceipt,
+  deferDeliveryReceipt,
   createConversation,
-  insertMessage,
   updateMessageStatus,
-  updateConversation,
-  queueMessage,
   getPendingMessages,
-  removeFromQueue,
   incrementRetryCount,
-  updateQueuedMessageTarget,
-  getConversation,
   getMessageById,
+  getMessagesAwaitingRead,
 } from './chatDatabase';
 import {upsertIncomingChatThreadNotification} from './chatNotificationV2Service';
 import {evaluateIncomingMessage} from './chatSystem';
@@ -46,6 +51,11 @@ let appStateTokenListenerInitialized = false;
 let tokenRecoveryTimer = null;
 let tokenHealInFlight = false;
 let pendingMessageProcessingInFlight = false;
+let receiptProcessingInFlight = false;
+let receiptDrainRequested = false;
+let deliveryRetryTimer = null;
+let inboxRecoveryInFlight = false;
+const activeMessageSends = new Set();
 let chatDbInitialized = false;
 const processedIncomingMessageIds = new Set();
 const processedIncomingMessageIdQueue = [];
@@ -61,8 +71,6 @@ const FCM_TOKEN_LAST_SYNC_KEY = 'fcmTokenLastSync';
 const FCM_TOKEN_LAST_SYNC_AT_KEY = 'fcmTokenLastSyncAt';
 const FCM_SYNC_DEDUPE_WINDOW_MS = 2 * 60 * 60 * 1000;
 const PLACEHOLDER_CONTACT_NAMES = new Set(['contact', 'app user', 'user']);
-const PENDING_RETRY_MIN_DELAY_MS = 10 * 1000;
-const PENDING_RETRY_MAX_DELAY_MS = 5 * 60 * 1000;
 
 const normalizeValidContactName = value => {
   const raw = String(value || '').trim();
@@ -128,6 +136,10 @@ const hasIncomingMessageBeenProcessed = messageId => {
 
 export const resetMessagingServiceDatabaseState = () => {
   chatDbInitialized = false;
+  clearTimeout(deliveryRetryTimer);
+  deliveryRetryTimer = null;
+  processedIncomingMessageIds.clear();
+  processedIncomingMessageIdQueue.length = 0;
 };
 
 const ensureChatDatabaseInitialized = () => {
@@ -192,7 +204,7 @@ const applyIncomingChatMessage = async ({
     contactRecordId: String(contactRecordId || '').trim(),
   });
 
-  await insertMessage({
+  saveIncomingMessage({
     messageId: incomingMessageId,
     conversationId: convId,
     senderId: incomingSenderId,
@@ -204,13 +216,7 @@ const applyIncomingChatMessage = async ({
     timestamp,
     deliveryStatus: 'delivered',
     isRead: policy.markReadNow,
-  });
-
-  await updateConversation(convId, {
-    lastMessageText: messageText,
-    lastMessageTimestamp: timestamp,
-    unreadCount: policy.incrementUnread ? 'INCREMENT' : 0,
-  });
+  }, policy);
 
   logChatLatency('LOCAL_APPLY', {
     messageId: incomingMessageId,
@@ -280,13 +286,9 @@ const applyIncomingChatMessage = async ({
     });
   }
 
-  // Delivery receipt is a secondary sync side-effect. It must not block
-  // the user-visible notification path in background/headless execution.
-  void sendDeliveryReceipt(
-    incomingSenderId,
-    incomingMessageId,
-    policy.receiptStatus,
-  );
+  // Display first, then keep the headless FCM task alive until the bounded
+  // acknowledgement attempt finishes. Failure remains in the durable queue.
+  await processPendingReceipts();
 
   return {
     applied: true,
@@ -531,125 +533,83 @@ const buildReceiverUnavailableError = (message = 'Receiver unavailable', extra =
   return error;
 };
 
-const computePendingRetryDelayMs = retryCount => {
-  const count = Math.max(0, Number(retryCount) || 0);
-  const backoff = PENDING_RETRY_MIN_DELAY_MS * 2 ** count;
-  return Math.min(PENDING_RETRY_MAX_DELAY_MS, backoff);
+// Retry execution is bounded and active only while the app is foregrounded.
+// Android persistent background scheduling is integrated in the next stage.
+const scheduleDeliveryRetry = () => {
+  if (deliveryRetryTimer || AppState.currentState !== 'active' || !auth().currentUser) return;
+  if (!hasQueuedDeliveryWork(auth().currentUser.uid)) return;
+  deliveryRetryTimer = setTimeout(() => {
+    deliveryRetryTimer = null;
+    if (AppState.currentState !== 'active' || !auth().currentUser) return;
+    void processPendingMessages().catch(error => console.error('Message retry failed:', error));
+    void processPendingReceipts().catch(error => console.error('Receipt retry failed:', error));
+  }, 10000);
 };
 
-/**
- * Send message to another user via backend
- */
-export const sendMessageToUser = async (receiverId, messageData) => {
-  const currentUserId = auth().currentUser?.uid;
-  if (!currentUserId) {
-    throw new Error('User not authenticated');
+const transmitQueuedMessage = async (messageId, receiverId, payload, ownerUid) => {
+  const saved = getMessageById(messageId);
+  if (saved?.sender_id === ownerUid && ['delivered', 'read'].includes(saved.delivery_status)) {
+    removeMessageFromQueue(messageId);
+    return true;
   }
+  const token = await getAuthToken();
+  if (auth().currentUser?.uid !== ownerUid) throw new Error('Session changed');
+  const {response, body} = await deliveryFetch(`${API_URL}/messages/send`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token}`},
+    body: JSON.stringify({...payload, receiverId, senderId: ownerUid, messageId, protocolVersion: 2}),
+  });
+  if (auth().currentUser?.uid !== ownerUid) throw new Error('Session changed');
+  if (!response.ok && isExplicitReceiverUnavailable(body)) {
+    updateMessageStatus(messageId, 'failed');
+    removeMessageFromQueue(messageId);
+    throw buildReceiverUnavailableError('Receiver unavailable', {responseData: body, receiverId});
+  }
+  const status = String(body?.status || '').toLowerCase();
+  if (!response.ok || body?.success !== true || !['accepted', 'pushed', 'delivered', 'read'].includes(status)) {
+    throw new Error(body?.message || body?.error || `Delivery response ${response.status}`);
+  }
+  // The current backend has no persistent delivery worker. Keep an accepted-only
+  // message locally until push succeeds; do not trust its queued flag as handoff.
+  if (body.durable !== true && (body.queued === true || status === 'accepted')) {
+    updateMessageStatus(messageId, 'queued');
+    return false;
+  }
+  updateMessageStatus(messageId, status === 'read' ? 'read' : status === 'delivered' ? 'delivered' : 'sent');
+  removeMessageFromQueue(messageId);
+  emitIncomingChatUpdate({type: 'message_status_update', messageId, conversationId: payload.conversationId, status});
+  return true;
+};
 
-  const messageId =
-    messageData.messageId ||
-    `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  let activeReceiverId = String(receiverId || '').trim();
-  const emitChatActivity = (timestamp = Date.now()) => {
-    DeviceEventEmitter.emit('ledger:chatActivity', {
-      contactRecordId: String(messageData?.contactRecordId || '').trim(),
-      userId: String(activeReceiverId || receiverId || '').trim(),
-      timestamp: Number(timestamp) || Date.now(),
-    });
-  };
+export const sendMessageToUser = async (receiverId, messageData) => {
+  const ownerUid = auth().currentUser?.uid;
+  if (!ownerUid) throw new Error('User not authenticated');
+  ensureChatDatabaseInitialized();
+  const messageId = messageData.messageId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+  const timestamp = Number(messageData.timestamp) || Date.now();
+  const payload = {...messageData, messageId, senderId: ownerUid, receiverId, timestamp};
+  activeMessageSends.add(messageId);
   try {
-    const messageTimestamp = Number(messageData.timestamp) || Date.now();
-    await insertMessage({
-      messageId,
-      conversationId: messageData.conversationId,
-      senderId: currentUserId,
-      receiverId: activeReceiverId,
-      messageText: messageData.messageText || '',
-      messageType: messageData.messageType || 'text',
-      imageUri: messageData.imageUri || null,
-      transactionRequestData: messageData.transactionRequestData || null,
+    // A disk/transaction failure is reported to the caller, never converted into
+    // a phantom queued message that was not actually saved.
+    saveOutgoingMessage({
+      ...payload,
       deliveryStatus: 'sending',
-      timestamp: messageTimestamp,
       isRead: 0,
+    }, payload);
+    DeviceEventEmitter.emit('ledger:chatActivity', {
+      contactRecordId: String(messageData.contactRecordId || ''), userId: receiverId, timestamp,
     });
-
-    await updateConversation(messageData.conversationId, {
-      lastMessageText: messageData.messageText,
-      lastMessageTimestamp: messageTimestamp,
-    });
-    emitChatActivity(messageTimestamp);
-
-    const token = await getAuthToken();
-    const buildPayload = () => ({
-      conversationId: messageData.conversationId,
-      senderId: currentUserId,
-      receiverId: activeReceiverId,
-      messageId,
-      messageText: messageData.messageText || '',
-      messageType: messageData.messageType || 'text',
-      imageUri: messageData.imageUri || null,
-      transactionRequestData: messageData.transactionRequestData || null,
-      timestamp: messageTimestamp,
-    });
-
-    let response = await fetch(`${API_URL}/messages/send`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(buildPayload()),
-    });
-
-    let responseData = await parseJsonResponseSafely(response);
-
-    if (!response.ok && isExplicitReceiverUnavailable(responseData)) {
-      await updateMessageStatus(messageId, 'failed');
-      throw buildReceiverUnavailableError('Receiver unavailable', {
-        responseData,
-        receiverId: activeReceiverId || receiverId,
-        contactRecordId: String(messageData?.contactRecordId || '').trim(),
-      });
+    try {
+      await transmitQueuedMessage(messageId, receiverId, payload, ownerUid);
+    } catch (error) {
+      if (error?.code === 'RECEIVER_UNAVAILABLE') throw error;
+      updateMessageStatus(messageId, 'queued');
     }
-
-    const resolvedStatus = String(responseData?.status || '').toLowerCase();
-    const treatAsQueued =
-      response.ok &&
-      (responseData?.queued === true || resolvedStatus === 'accepted');
-
-    if (response.ok && !treatAsQueued) {
-      await updateMessageStatus(messageId, 'sent');
-      emitIncomingChatUpdate({
-        type: 'message_status_update',
-        messageId,
-        status: 'sent',
-        conversationId: messageData.conversationId || '',
-      });
-    } else {
-      if (!response.ok) {
-        console.error('Backend returned error:', responseData);
-      } else {
-        console.log('Message accepted but queued for delivery:', {
-          messageId,
-          status: responseData?.status || null,
-        });
-      }
-      await queueMessage(messageId, activeReceiverId || receiverId, messageData);
-      await updateMessageStatus(messageId, 'queued');
-      emitChatActivity(messageTimestamp);
-    }
-
     return messageId;
-  } catch (error) {
-    console.error('Error sending message:', error);
-    if (error?.code === 'RECEIVER_UNAVAILABLE') {
-      throw error;
-    }
-    await queueMessage(messageId, activeReceiverId || receiverId, messageData);
-    await updateMessageStatus(messageId, 'queued');
-    emitChatActivity(Number(messageData?.timestamp) || Date.now());
-    return messageId;
+  } finally {
+    activeMessageSends.delete(messageId);
+    scheduleDeliveryRetry();
   }
 };
 
@@ -1550,6 +1510,12 @@ export const handleIncomingMessage = async (remoteMessage) => {
       return;
     }
 
+    if (data.receiverId && data.receiverId !== auth().currentUser?.uid) return;
+    if (data.type === 'delivery_sync') {
+      await recoverDeliveryInbox();
+      return;
+    }
+
     if (data.type === 'ledger_event') {
       await handleLedgerEvent(data);
       return;
@@ -1602,7 +1568,9 @@ export const handleIncomingMessage = async (remoteMessage) => {
         10,
       );
 
-      if (!conversationId || !senderId) {
+      const receivingUid = auth().currentUser?.uid;
+      if (!conversationId || !senderId || !receivingUid ||
+          senderId === receivingUid || !conversationId.split('_').includes(receivingUid)) {
         console.log('Invalid chat message payload - missing conversationId/senderId');
         return;
       }
@@ -1626,13 +1594,11 @@ export const handleIncomingMessage = async (remoteMessage) => {
         ),
       });
 
-      if (hasIncomingMessageBeenProcessed(messageId)) {
-        console.log('Duplicate message skipped (in-memory):', messageId);
-        return;
-      }
-      markIncomingMessageProcessed(messageId);
-
-      if (getMessageById(messageId)) {
+      const existingMessage = getMessageById(messageId);
+      if (existingMessage) {
+        if (existingMessage.receiver_id === auth().currentUser?.uid) {
+          await sendDeliveryReceipt(senderId, messageId, existingMessage.is_read ? 'read' : 'delivered');
+        }
         console.log('Duplicate message skipped (db):', messageId);
         return;
       }
@@ -1662,6 +1628,7 @@ export const handleIncomingMessage = async (remoteMessage) => {
         endToEndMs: Math.max(0, Date.now() - timestamp),
       });
       if (incomingResult?.applied) {
+        markIncomingMessageProcessed(messageId);
         DeviceEventEmitter.emit('ledger:chatActivity', {
           contactRecordId: optimisticContactRecordId,
           userId: senderId,
@@ -1691,6 +1658,8 @@ export const handleIncomingMessage = async (remoteMessage) => {
     }
 
     if (data.type === 'delivery_receipt') {
+      const ownedMessage = getMessageById(data.messageId);
+      if (!ownedMessage || ownedMessage.sender_id !== auth().currentUser?.uid) return;
       console.log('📦 [RECEIPT] Delivery receipt received:', {
         messageId: data.messageId,
         status: data.status,
@@ -1707,6 +1676,8 @@ export const handleIncomingMessage = async (remoteMessage) => {
     }
 
     if (data.type === 'read_receipt') {
+      const ownedMessage = getMessageById(data.messageId);
+      if (!ownedMessage || ownedMessage.sender_id !== auth().currentUser?.uid) return;
       console.log('👁️ [RECEIPT] Read receipt received:', {
         messageId: data.messageId,
       });
@@ -1725,33 +1696,103 @@ export const handleIncomingMessage = async (remoteMessage) => {
   }
 };
 
+// Recovery is owned by the account lifecycle, never by the currently open chat.
+export const recoverDeliveryInbox = async () => {
+  const uid = auth().currentUser?.uid;
+  if (!uid || inboxRecoveryInFlight) return;
+  inboxRecoveryInFlight = true;
+  try {
+    ensureChatDatabaseInitialized();
+    const token = await getAuthToken();
+    if (auth().currentUser?.uid !== uid) return;
+    const headers = {'Content-Type': 'application/json', Authorization: `Bearer ${token}`};
+    let cursor = '';
+    do {
+      const {response, body} = await deliveryFetch(`${API_URL}/messages/inbox?after=${encodeURIComponent(cursor)}`, {headers});
+      if (auth().currentUser?.uid !== uid) return;
+      if (response.status === 404) return; // Backend-first rollout compatibility.
+      if (!response.ok || body?.success !== true) throw new Error('Inbox recovery failed');
+      for (const event of body.events || []) {
+        if (auth().currentUser?.uid !== uid) return;
+        await handleIncomingMessage({data: event.data});
+      }
+      cursor = body.nextCursor || '';
+    } while (cursor && auth().currentUser?.uid === uid);
+    let afterId = 0;
+    while (auth().currentUser?.uid === uid) {
+      const rows = getMessagesAwaitingRead(uid, afterId);
+      if (!rows.length) break;
+      const {response, body} = await deliveryFetch(`${API_URL}/messages/statuses`, {
+        method: 'POST', headers, body: JSON.stringify({messageIds: rows.map(row => row.message_id)}),
+      });
+      if (auth().currentUser?.uid !== uid) return;
+      if (!response.ok || body?.success !== true) throw new Error('Status recovery failed');
+      for (const receipt of body.statuses || []) {
+        const local = getMessageById(receipt.messageId);
+        if (!local || local.sender_id !== uid) continue;
+        const status = ['read', 'delivered'].includes(receipt.status) ? receipt.status : 'sent';
+        updateMessageStatus(receipt.messageId, status);
+        if (local.delivery_status !== status) emitIncomingChatUpdate({
+          type: 'message_status_update', messageId: receipt.messageId,
+          conversationId: local.conversation_id, status,
+        });
+      }
+      afterId = rows[rows.length - 1].id;
+    }
+  } finally {
+    inboxRecoveryInFlight = false;
+  }
+};
+
 /**
  * Send delivery receipt back to sender
  */
-export const sendDeliveryReceipt = async (
-  senderId,
-  messageId,
-  status,
-  authTokenOverride = null,
-) => {
-  try {
-    const token = String(authTokenOverride || '').trim() || (await getAuthToken());
-
-    await fetch(`${API_URL}/messages/delivery-receipt`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        senderId,
-        messageId,
-        status, // 'delivered' or 'read'
-      }),
-    });
-  } catch (error) {
-    console.error('Error sending delivery receipt:', error);
+export const processPendingReceipts = async () => {
+  const ownerUid = auth().currentUser?.uid;
+  if (!ownerUid) return;
+  if (receiptProcessingInFlight) {
+    receiptDrainRequested = true;
+    return;
   }
+  receiptProcessingInFlight = true;
+  try {
+    ensureChatDatabaseInitialized();
+    do {
+    receiptDrainRequested = false;
+    for (const receipt of getPendingReceipts(ownerUid)) {
+      if (auth().currentUser?.uid !== ownerUid) break;
+      try {
+        const token = await getAuthToken();
+        if (auth().currentUser?.uid !== ownerUid) break;
+        const {response, body} = await deliveryFetch(`${API_URL}/messages/delivery-receipt`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token}`},
+          body: JSON.stringify({senderId: receipt.sender_id, messageId: receipt.message_id, status: receipt.status}),
+        });
+        if (!response.ok || body?.success !== true) throw new Error(`Receipt rejected: ${response.status}`);
+        if (auth().currentUser?.uid !== ownerUid) break;
+        completeDeliveryReceipt(receipt);
+      } catch (error) {
+        deferDeliveryReceipt(receipt, deliveryRetryDelay(receipt.retry_count));
+      }
+    }
+    // Drain further pages and read upgrades queued while a delivered request
+    // was in flight. Failed rows have a future retry date, so cannot spin here.
+    } while (auth().currentUser?.uid === ownerUid &&
+      (receiptDrainRequested || getPendingReceipts(ownerUid).length > 0));
+  } finally {
+    receiptProcessingInFlight = false;
+    scheduleDeliveryRetry();
+  }
+};
+
+export const sendDeliveryReceipt = async (senderId, messageId, status) => {
+  const ownerUid = auth().currentUser?.uid;
+  if (!ownerUid) throw new Error('User not authenticated');
+  ensureChatDatabaseInitialized();
+  // Persist synchronously before yielding, including headless FCM execution.
+  queueDeliveryReceipt(ownerUid, senderId, messageId, status);
+  await processPendingReceipts();
 };
 
 /**
@@ -1778,133 +1819,33 @@ export const setupFCMListeners = () => {
  * Process pending messages (retry failed sends)
  */
 export const processPendingMessages = async () => {
-  if (pendingMessageProcessingInFlight) {
-    if (__DEV__) {
-      console.log('[PENDING_QUEUE] process skipped (already running)');
-    }
-    return;
-  }
-
+  const ownerUid = auth().currentUser?.uid;
+  if (!ownerUid || pendingMessageProcessingInFlight) return;
   pendingMessageProcessingInFlight = true;
   try {
-    const pendingMessages = getPendingMessages();
-
-    if (pendingMessages.length === 0) {
-      return;
-    }
-
-    console.log(`Processing ${pendingMessages.length} pending messages...`);
-
-    for (const queuedMessage of pendingMessages) {
+    ensureChatDatabaseInitialized();
+    recoverOutgoingQueue(ownerUid);
+    for (const item of getPendingMessages(ownerUid)) {
+      if (auth().currentUser?.uid !== ownerUid) break;
+      if (activeMessageSends.has(item.message_id)) continue;
+      activeMessageSends.add(item.message_id);
       try {
-        let messageData = {};
-        try {
-          messageData = JSON.parse(queuedMessage.message_data || '{}');
-        } catch (parseError) {
-          console.error(
-            `[PENDING_QUEUE] invalid message_data; dropping queue item ${queuedMessage.queue_id}:`,
-            parseError,
-          );
-          removeFromQueue(queuedMessage.queue_id);
-          continue;
-        }
-
-        const token = await getAuthToken();
-        const currentUserId = auth().currentUser?.uid;
-        const conversationId = String(
-          messageData?.conversationId || queuedMessage.conversation_id || '',
-        ).trim();
-        const conversation = conversationId ? getConversation(conversationId) : null;
-        let activeReceiverId = String(
-          queuedMessage.receiver_id ||
-            messageData?.receiverId ||
-            conversation?.other_user_id ||
-            '',
-        ).trim();
-
-        if (!activeReceiverId) {
-          const delayMs = computePendingRetryDelayMs(queuedMessage.retry_count);
-          incrementRetryCount(queuedMessage.queue_id, {delayMs});
-          console.warn(
-            `[PENDING_QUEUE] receiver unresolved for ${queuedMessage.message_id}, retry scheduled in ${Math.round(
-              delayMs / 1000,
-            )}s`,
-          );
-          continue;
-        }
-
-        const buildPayload = () => ({
-          conversationId,
-          senderId: String(messageData?.senderId || currentUserId || '').trim(),
-          receiverId: activeReceiverId,
-          messageId: queuedMessage.message_id,
-          messageText: messageData?.messageText || '',
-          messageType: messageData?.messageType || 'text',
-          imageUri: messageData?.imageUri || null,
-          transactionRequestData: messageData?.transactionRequestData || null,
-          timestamp: Number(messageData?.timestamp) || Date.now(),
-        });
-
-        // Retry sending
-        let response = await fetch(`${API_URL}/messages/send`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(buildPayload()),
-        });
-
-        let responseData = await parseJsonResponseSafely(response);
-        if (!response.ok && isExplicitReceiverUnavailable(responseData)) {
-          removeFromQueue(queuedMessage.queue_id);
-          await updateMessageStatus(queuedMessage.message_id, 'failed');
-          console.log(
-            `Message ${queuedMessage.message_id} marked unavailable; removed from retry queue`,
-          );
-          continue;
-        }
-
-        const resolvedStatus = String(responseData?.status || '').toLowerCase();
-        const treatAsQueued =
-          response.ok &&
-          (responseData?.queued === true || resolvedStatus === 'accepted');
-
-        if (response.ok && !treatAsQueued) {
-          // Success - remove from queue
-          removeFromQueue(queuedMessage.queue_id);
-          await updateMessageStatus(queuedMessage.message_id, 'sent');
-          console.log(`Message ${queuedMessage.message_id} sent successfully`);
-        } else {
-          if (response.ok && treatAsQueued) {
-            // Backend has accepted/queued it, so local retry queue should stop retrying.
-            removeFromQueue(queuedMessage.queue_id);
-            await updateMessageStatus(queuedMessage.message_id, 'queued');
-            console.log(
-              `Message ${queuedMessage.message_id} accepted by backend queue; local retry removed`,
-            );
-          } else {
-            // Failed - increment retry count
-            const delayMs = computePendingRetryDelayMs(queuedMessage.retry_count);
-            incrementRetryCount(queuedMessage.queue_id, {delayMs});
-            console.log(
-              `Message ${queuedMessage.message_id} retry ${
-                queuedMessage.retry_count + 1
-              }/3 failed (next in ${Math.round(delayMs / 1000)}s)`,
-            );
-          }
-        }
+        const payload = JSON.parse(item.message_data);
+        if (payload.senderId && payload.senderId !== ownerUid) continue;
+        // Legacy queue entries are owned by their matching messages.sender_id.
+        const sent = await transmitQueuedMessage(item.message_id, item.receiver_id, payload, ownerUid);
+        if (!sent) incrementRetryCount(item.queue_id, {delayMs: deliveryRetryDelay(item.retry_count)});
       } catch (error) {
-        // Error - increment retry count
-        const delayMs = computePendingRetryDelayMs(queuedMessage.retry_count);
-        incrementRetryCount(queuedMessage.queue_id, {delayMs});
-        console.error('Error retrying message:', error);
+        if (error?.code !== 'RECEIVER_UNAVAILABLE') {
+          incrementRetryCount(item.queue_id, {delayMs: deliveryRetryDelay(item.retry_count)});
+        }
+      } finally {
+        activeMessageSends.delete(item.message_id);
       }
     }
-  } catch (error) {
-    console.error('Error processing pending messages:', error);
   } finally {
     pendingMessageProcessingInFlight = false;
+    scheduleDeliveryRetry();
   }
 };
 
@@ -1921,8 +1862,12 @@ export const setupNetworkListener = () => {
 
   NetInfo.addEventListener(state => {
     if (state.isConnected) {
+      void recoverDeliveryInbox().catch(error => console.error('Inbox recovery failed:', error));
       console.log('Online - processing pending messages');
-      processPendingMessages();
+      void processPendingMessages().catch(error => console.error('Message retry failed:', error));
+      void processPendingReceipts().catch(error => console.error('Receipt retry failed:', error));
+      const {processPendingLedgerEvents} = require('./ledgerSyncService');
+      void processPendingLedgerEvents().catch(error => console.error('Ledger retry failed:', error));
     }
   });
 };
@@ -1959,7 +1904,15 @@ export const setupAppStateTokenListener = () => {
   appStateTokenListenerInitialized = true;
 
   AppState.addEventListener('change', async nextState => {
-    if (nextState === 'active') {
+    if (nextState !== 'active') {
+      clearTimeout(deliveryRetryTimer);
+      deliveryRetryTimer = null;
+    } else {
+      void recoverDeliveryInbox().catch(error => console.error('Inbox recovery failed:', error));
+      void processPendingMessages().catch(error => console.error('Message retry failed:', error));
+      void processPendingReceipts().catch(error => console.error('Receipt retry failed:', error));
+      const {processPendingLedgerEvents} = require('./ledgerSyncService');
+      void processPendingLedgerEvents().catch(error => console.error('Ledger retry failed:', error));
       await ensureValidFcmToken({
         reason: 'app_active',
         forceRotateIfNeeded: false,
@@ -1980,6 +1933,12 @@ export const initMessagingService = async () => {
     console.log('✅ Chat database initialized');
     await migrateLedgerContactPlaceholders();
 
+    setupFCMListeners();
+    setupTokenRefreshListener();
+    setupAppStateTokenListener();
+    setupNetworkListener();
+    void recoverDeliveryInbox().catch(error => console.error('Inbox recovery failed:', error));
+
     // Request/sync token with retry + self-heal path.
     const fcmToken = await ensureValidFcmToken({ reason: 'init', forceRotateIfNeeded: true });
     console.log('FCM Token obtained:', fcmToken ? `${fcmToken.substring(0, 20)}...` : 'null');
@@ -1988,11 +1947,6 @@ export const initMessagingService = async () => {
       console.warn('No FCM token received');
     }
 
-    // Setup listeners
-    setupFCMListeners();
-    setupTokenRefreshListener();
-    setupAppStateTokenListener();
-    setupNetworkListener();
 
     console.log('✅ Messaging service initialized');
   } catch (error) {
