@@ -1,5 +1,16 @@
 import {open} from 'react-native-quick-sqlite';
 
+export const getLedgerTransactionsPage = (recordId, limit = 50, before = null) => {
+  const database = getDB();
+  const size = Math.max(1, Math.floor(Number(limit) || 50));
+  const cursorSql = before ? " AND (COALESCE(transaction_date, 0) < ? OR (COALESCE(transaction_date, 0) = ? AND ('txn-' || id) < ?))" : '';
+  const parameters = [String(recordId)];
+  if (before) parameters.push(before.timestamp, before.timestamp, before.id);
+  parameters.push(size);
+  return database.execute(`SELECT * FROM ledger_transactions WHERE contact_record_id = ?
+    ${cursorSql} ORDER BY COALESCE(transaction_date, 0) DESC, CAST(id AS TEXT) DESC LIMIT ?`, parameters).rows?._array || [];
+};
+
 const DB_NAME = 'ledgerDB.db';
 let db = null;
 

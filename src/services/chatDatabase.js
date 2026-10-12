@@ -335,6 +335,17 @@ export const getMessages = (conversationId, limit = null, offset = 0) => {
   return result.rows?._array || [];
 };
 
+export const getMessagesPage = (conversationId, limit = 50, before = null) => {
+  const database = getDB();
+  const size = Math.max(1, Math.floor(Number(limit) || 50));
+  const cursorSql = before ? " AND (timestamp < ? OR (timestamp = ? AND ('msg-' || message_id) < ?))" : '';
+  const parameters = [conversationId];
+  if (before) parameters.push(before.timestamp, before.timestamp, before.id);
+  parameters.push(size);
+  return database.execute(`SELECT * FROM messages WHERE conversation_id = ? AND is_deleted = 0
+    ${cursorSql} ORDER BY timestamp DESC, message_id DESC LIMIT ?`, parameters).rows?._array || [];
+};
+
 /**
  * Update message status (pending → sending → sent → delivered → read)
  */
@@ -370,6 +381,19 @@ export const saveOutgoingMessage = (message, payload) => {
       lastMessageText: message.messageText,
       lastMessageTimestamp: message.timestamp,
     });
+    database.execute('COMMIT');
+  } catch (error) {
+    database.execute('ROLLBACK');
+    throw error;
+  }
+};
+
+export const requeueOutgoingMessage = (messageId, receiverId, payload) => {
+  const database = getDB();
+  database.execute('BEGIN IMMEDIATE TRANSACTION');
+  try {
+    queueMessage(messageId, receiverId, payload);
+    updateMessageStatus(messageId, 'sending');
     database.execute('COMMIT');
   } catch (error) {
     database.execute('ROLLBACK');

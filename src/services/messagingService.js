@@ -1,6 +1,7 @@
 import messaging from '@react-native-firebase/messaging';
 import auth from '@react-native-firebase/auth';
 import {deliveryFetch, deliveryRetryDelay} from './deliveryTransport';
+import {isComposerOwnerCurrent} from './chatComposerHandoff';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { chatStore } from '../context/ChatStore';
 import {DeviceEventEmitter, AppState, Platform} from 'react-native';
@@ -11,6 +12,7 @@ import {
 import {
   initChatDatabase,
   saveOutgoingMessage,
+  requeueOutgoingMessage,
   saveIncomingMessage,
   hasQueuedDeliveryWork,
   removeMessageFromQueue,
@@ -300,12 +302,16 @@ const applyIncomingChatMessage = async ({
 /**
  * Get Firebase auth token
  */
-const getAuthToken = async () => {
+const getAuthToken = async (expectedOwner = null) => {
   const currentUser = auth().currentUser;
   if (!currentUser) {
     throw new Error('User not authenticated');
   }
-  return await currentUser.getIdToken();
+  const owner = expectedOwner || currentUser.uid;
+  if (!isComposerOwnerCurrent(owner)) throw new Error('Session changed');
+  const result = await currentUser.getIdTokenResult();
+  if (result.claims?.sub !== owner || !isComposerOwnerCurrent(owner)) throw new Error('Session changed');
+  return result.token;
 };
 
 const waitMs = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -548,12 +554,22 @@ const scheduleDeliveryRetry = () => {
 
 const transmitQueuedMessage = async (messageId, receiverId, payload, ownerUid) => {
   const saved = getMessageById(messageId);
+  if (!saved) {
+    removeMessageFromQueue(messageId);
+    return true;
+  }
   if (saved?.sender_id === ownerUid && ['delivered', 'read'].includes(saved.delivery_status)) {
     removeMessageFromQueue(messageId);
     return true;
   }
-  const token = await getAuthToken();
+  const token = await getAuthToken(ownerUid);
   if (auth().currentUser?.uid !== ownerUid) throw new Error('Session changed');
+  // A user may delete the queued row while token acquisition is in progress.
+  const current = getMessageById(messageId);
+  if (!current || ['delivered', 'read'].includes(current.delivery_status)) {
+    removeMessageFromQueue(messageId);
+    return true;
+  }
   const {response, body} = await deliveryFetch(`${API_URL}/messages/send`, {
     method: 'POST',
     headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token}`},
@@ -582,21 +598,42 @@ const transmitQueuedMessage = async (messageId, receiverId, payload, ownerUid) =
 };
 
 export const sendMessageToUser = async (receiverId, messageData) => {
+  const {onPersisted, expectedSenderId, ...wireData} = messageData;
   const ownerUid = auth().currentUser?.uid;
   if (!ownerUid) throw new Error('User not authenticated');
+  if (!isComposerOwnerCurrent(ownerUid)) throw new Error('Session changed');
+  if (expectedSenderId && expectedSenderId !== ownerUid) {
+    throw new Error('Composer session changed');
+  }
+  if (expectedSenderId && messageData.conversationId !== [ownerUid, receiverId].sort().join('_')) {
+    throw new Error('Composer conversation changed');
+  }
   ensureChatDatabaseInitialized();
   const messageId = messageData.messageId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
   const timestamp = Number(messageData.timestamp) || Date.now();
-  const payload = {...messageData, messageId, senderId: ownerUid, receiverId, timestamp};
+  const payload = {...wireData, messageId, senderId: ownerUid, receiverId, timestamp};
+  const existing = getMessageById(messageId);
+  if (existing && (existing.sender_id !== ownerUid || existing.receiver_id !== receiverId ||
+    existing.conversation_id !== messageData.conversationId || existing.message_text !== messageData.messageText)) {
+    throw new Error('Message identity mismatch');
+  }
+  if (existing && (activeMessageSends.has(messageId) ||
+    ['sent', 'accepted', 'pushed', 'delivered', 'read'].includes(existing.delivery_status))) {
+    if (onPersisted) await onPersisted(messageId);
+    return messageId;
+  }
   activeMessageSends.add(messageId);
   try {
     // A disk/transaction failure is reported to the caller, never converted into
     // a phantom queued message that was not actually saved.
-    saveOutgoingMessage({
+    if (!existing) saveOutgoingMessage({
       ...payload,
       deliveryStatus: 'sending',
       isRead: 0,
     }, payload);
+    else if (existing.delivery_status === 'failed') requeueOutgoingMessage(messageId, receiverId, payload);
+    // Only a committed outbox row can release the native handoff snapshot.
+    if (onPersisted) await onPersisted(messageId);
     DeviceEventEmitter.emit('ledger:chatActivity', {
       contactRecordId: String(messageData.contactRecordId || ''), userId: receiverId, timestamp,
     });

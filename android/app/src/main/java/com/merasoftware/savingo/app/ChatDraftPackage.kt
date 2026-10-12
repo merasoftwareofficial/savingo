@@ -7,7 +7,7 @@ import com.facebook.react.uimanager.ViewManager
 
 class ChatDraftPackage : ReactPackage {
   override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> =
-    emptyList()
+    listOf(ChatComposerStorageModule(reactContext))
 
   override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> =
     listOf(ChatSendButtonManager())

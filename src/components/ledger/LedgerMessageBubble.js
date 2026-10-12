@@ -2,29 +2,22 @@ import React, {useMemo} from 'react';
 import {View, Text} from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import TapEffect from '../ui/TapEffect';
+import {getChatMessageStatus} from '../../services/chatMessageStatus';
 
 // Primitive message props let unchanged rows skip rendering after a timeline reload.
 const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
   isSent, isSelected, isSelectionMode, showDate,
-  styles, colors, enterSelectionMode, toggleMessageSelection}) => {
+  styles, colors, enterSelectionMode, toggleMessageSelection, onRetry,
+  ownerId, receiverId, conversationId}) => {
   const timeLabel = useMemo(() => new Date(timestamp).toLocaleTimeString('en-IN', {
     hour: '2-digit', minute: '2-digit',
   }), [timestamp]);
   const dateLabel = useMemo(() => showDate ? new Date(timestamp).toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',
   }) : '', [timestamp, showDate]);
-    const deliveryStatus = String(deliveryStatusValue || '').toLowerCase();
-    const showDoubleTick = deliveryStatus === 'delivered' || deliveryStatus === 'read';
-    const showSingleTick =
-      !showDoubleTick &&
-      (deliveryStatus === 'sent' ||
-        deliveryStatus === 'sending' ||
-        deliveryStatus === 'pending' ||
-        deliveryStatus === 'queued' ||
-        deliveryStatus === 'accepted' ||
-        deliveryStatus === 'pushed');
-    const tickIconName = showDoubleTick ? 'checkmark-done' : showSingleTick ? 'checkmark' : null;
-    const tickColor = deliveryStatus === 'read' ? '#22C55E' : colors.text.light;
+    const status = getChatMessageStatus(deliveryStatusValue);
+    const tickIconName = status.icon;
+    const tickColor = status.failed ? '#EF4444' : status.read ? '#22C55E' : colors.text.light;
 
     return (
       <View>
@@ -37,9 +30,13 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
         )}
         <TapEffect
           style={styles.chatRow}
+          accessibilityLabel={isSent ? `${text}. ${status.label}` : text}
           onLongPress={() => enterSelectionMode(messageId)}
           onPress={() => {
             if (!isSelectionMode) {
+              if (isSent && status.failed && onRetry) {
+                onRetry({messageId, text, pressedAt: timestamp, ownerId, receiverId, conversationId, consumed: true});
+              }
               return;
             }
             toggleMessageSelection(messageId);
@@ -68,6 +65,9 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
                 isSelected && styles.chatBubbleSelected,
               ]}>
               <Text style={styles.chatMessageText}>{text}</Text>
+              {isSent && status.failed ? (
+                <Text style={[styles.chatTime, {color: '#EF4444'}]}>Failed · tap to retry</Text>
+              ) : null}
               <View style={styles.chatMetaRow}>
                 <Text style={styles.chatTime}>
                   {timeLabel}

@@ -756,3 +756,52 @@ Every major feature change ke baad update:
 **Files:** `AccountApp/App.tsx`, `AccountApp/src/navigation/AppNavigator.js`
 **Fix:** Removed the `startupUiLocked` overlay path and its safety/unlock helpers from `App.tsx`. The `Home` stack route now uses `animation: 'none'`, so startup uses the existing route resolver without an extra blank masking layer.
 **Impact:** Restores faster visible startup while avoiding stacked shield/data-ready fixes. Any remaining startup flash is now exposed as a real route/theme issue instead of being hidden by an overlay.
+
+## Send ownership and native draft storage — code verified 2026-10-12
+- `ChatComposerStorage.kt`: owner/conversation-scoped native draft storage; consumed send snapshots persist before input clear. Snapshot removal happens only after the existing JS outbox commit. This is a composer-to-outbox handoff, not a second transport/retry sender.
+- `ChatSendButtonManager.kt` carries stable native message ID and owner/receiver/conversation metadata. Disk-write rejection retains the input; recovered sends reuse the original ID.
+- `chatComposerHandoff.js` and `useLedgerChatController.js` recover unacknowledged snapshots on opening the matching chat. `messagingService.js` validates existing row identity and suppresses active/already-sent replay. Unsaved failed bubbles survive timeline replacement.
+- Native draft writes use SharedPreferences.apply; consumed snapshots use commit. Draft restoration is implemented but not yet device-validated. Immediate power-loss durability of every draft keystroke is not claimed.
+- Verification: 27 delivery tests passed, including outbox-before-ack, DB rejection, replay and identity mismatch; compileDebugKotlin passed. Device speed/restart/draft acceptance pending because ADB has no connected device.
+- Originals: `../backup/fix12-send-safety/`; this stage has not been installed on the phone.
+
+## Message states and retry — code verified 2026-10-12
+- `chatMessageStatus.js` maps pending/sending/queued to a clock, sent to a single tick, delivered/read to double ticks, and failed to an explicit retry action. `LedgerMessageBubble.js` preserves long-press selection while allowing failed outgoing bubbles to retry outside selection mode.
+- Retry keeps the original ID. `requeueOutgoingMessage` commits retry obligation and sending status atomically; existing sent/read rows are acknowledged without retransmission. Native handoff recovery cannot overwrite a different recipient/text under the same ID.
+- Verification: 31 delivery/status/retry tests passed; changed composer/bubble/hook helpers have zero eslint errors (existing shadow warning and bubble inline-style warning). Native speed, selection and reconnect tests still need the phone. Originals: `../backup/fix13-message-states/`.
+
+## Targeted chat updates — code verified 2026-10-12
+- `chatTimelineUpdates.js` upserts/deletes one message, shares unchanged row references and skips duplicate updates. Snapshot reconciliation retains unsaved failed bubbles and prevents delivery-status regression.
+- `useLedgerChatController.js` reads the single committed row after send/failure instead of full-history reload. The detail screen subscribes to message updates and updates one DB-backed row; chat versions no longer trigger history reload/pending-sync on every receipt.
+- Local timeline publication updates the existing cache/domain store. Domain subscriptions compare snapshots so unrelated base changes and normalized self-publications do not overwrite/re-render the current history.
+- Verification: 33 delivery/status/timeline tests passed. Real-device acceptance pending. Originals: `../backup/fix14-chat-updates/`.
+
+## Paged history, drafts and send gesture — code verified 2026-10-12
+- `chatHistoryPage.js` merges bounded SQLite message/ledger queries. Initial page is 50; older pages share a `(timestamp, prefixed ID)` cursor and stable descending ordering, so new arrivals/deletions do not introduce offset skips. Deleted ledger rows remain visible as before; deleted chat rows are excluded.
+- `LedgerConversationTimeline.js` requests older history at the list end and exposes a fallback load button. The detail screen retains already displayed history on a read failure and prevents overlapping older-page requests. Explicit message deletion forces a DB refresh. Ledger balance calculation continues to use the existing full ledger base data; this stage pages displayed history, not the balance model.
+- Drafts are stored natively by signed-in owner and conversation, restored without overwriting fresh typing, and separated on conversation changes. Queue insertion checks captured sender against actual auth owner. Draft app-restart/back acceptance still needs device confirmation.
+- Native send now uses the standard Android click boundary instead of ACTION_DOWN, allowing cancellation and reporting accessibility clicks correctly. Atomic snapshot/clear still runs on the UI thread after durable handoff succeeds.
+- Verification: 36 tests passed, including 240 mixed equal-timestamp rows, insertion/deletion between pages and account mismatch rejection. No new eslint errors versus the pre-work screen (18 existing) and selection hook (1 existing). Release/device acceptance pending. Originals: `../backup/fix15-history-drafts/`.
+
+### Final ownership/cancellation review — 2026-10-12
+- Current composer owner comes from Firebase auth state, not the persisted `firebaseUid` cache. Native storage checks actual FirebaseAuth ownership; send validates the canonical owner/recipient conversation. The app directly declares the same Firebase BOM/auth dependency already used by RNFirebase (34.7.0).
+- Native recovery snapshots are checked against current cached native ownership before outbox transfer, so a stale pending list cannot revive a deleted entry. Explicit user deletion cancels producer snapshots; unsaved cancelled rows are removed even when history deletion fails. Transmission rechecks the persisted row after token acquisition and skips deleted/already-acknowledged rows.
+- Token claims are bound to the expected UID and actual native session, preventing another account token from being used under a stale JS login. Composer callbacks/internal sender checks are excluded from saved/wire payloads.
+- Native storage is the sole draft restoration source; JS `draftRef` is a back-behavior mirror and no longer supplies TextInput.defaultValue. This avoids overwriting the stored draft with an old mirror.
+- Final automated suite: 43 tests passed. Composer/selection/handoff helpers have zero eslint errors; existing screen lint findings remain outside this work. Android final release/device acceptance is pending. Normal draft restart behavior needs a device test; instantaneous hard power-loss durability of every draft keystroke is not claimed.
+- Rollback scripts are available inside fix12–fix15 folders; the previous owner-tested APK is preserved at `../backup/fix12-send-safety/installed-before-safety.apk`. No rollback scripts have been executed.
+
+### Release handoff — 2026-10-12
+- Final release assemble passed and `app-arm64-v8a-release.apk` was installed with `adb install -r` and opened. Package version remains 3.0.0.14 / 114001; package flags do not include DEBUGGABLE. SHA256: `1F8D09C04016CB3E4DBD2C495BEC9EBCD66F16784F7707821DA8A28D81A6EFE5`.
+- Automated suite: 43/43 passed. Startup logs showed no new fatal/runtime error in the inspected window. Device fast-send, draft back/restart, selection and older-page scrolling were requested and remain pending; offline/reconnect device acceptance follows those checks. Do not mark the full working accepted from build success alone.
+- Runtime log: `../backup/fix15-history-drafts/device-release-log.txt`. Source rollback is per numbered phase; no runtime messages/drafts were wiped.
+
+### Device acceptance update — 2026-10-12
+- User confirmed all requested release-device checks passed: fast sends/letters/bubble speed/ticks, draft back/reopen and app restart, bubble selection and older history scrolling (quote: 'sab sahi hai maine test kar liya hai').
+- Inspected latest 250 runtime log lines: no FATAL EXCEPTION, TypeError, ReferenceError, COMPOSER_WRITE_FAILED or Session changed match. Offline/reconnect device acceptance remains pending.
+
+
+### Offline/reconnect acceptance — 2026-10-12
+- User performed the requested offline/restart/reconnect test and confirmed messages sent after reconnect (quote: 'haan kiya woh bhi ho gye send msgfs'). No failure was reported. Duplicate count was not separately stated; automated same-ID replay/overlap tests remain the explicit duplicate-prevention evidence.
+- All requested manual test rounds are complete: fast sending, drafts, selection/history and offline recovery. Final release build and 43/43 automated tests passed. No additional code change was made during acceptance.
+

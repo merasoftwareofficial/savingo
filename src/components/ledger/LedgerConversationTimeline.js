@@ -1,5 +1,5 @@
 import React from 'react';
-import {FlatList, Text, View} from 'react-native';
+import {ActivityIndicator, FlatList, Text, TouchableOpacity, View} from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Reanimated from 'react-native-reanimated';
 import {useTheme} from '../../context/ThemeContext';
@@ -14,6 +14,9 @@ const LedgerConversationTimeline = ({
   footerSpacing,
   shouldShowEmptyHistory,
   renderTimelineItem,
+  hasMoreHistory,
+  loadingOlderHistory,
+  onLoadOlder,
 }) => {
   const {colors} = useTheme();
   return (
@@ -35,9 +38,19 @@ const LedgerConversationTimeline = ({
     updateCellsBatchingPeriod={45}
     windowSize={9}
     removeClippedSubviews
+    onEndReached={onLoadOlder}
+    onEndReachedThreshold={0.4}
     renderItem={({item}) => renderTimelineItem(item)}
     ListHeaderComponent={<View style={{height: listKeyboardSpacerHeight}} />}
-    ListFooterComponent={<View style={{height: footerSpacing}} />}
+    ListFooterComponent={
+      <View style={{minHeight: footerSpacing}}>
+        {loadingOlderHistory ? <ActivityIndicator color={colors.primary} /> : hasMoreHistory ? (
+          <TouchableOpacity onPress={onLoadOlder}>
+            <Text style={styles.emptyText}>Load older history</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    }
     ListEmptyComponent={
       shouldShowEmptyHistory ? (
         <View style={styles.emptyHistory}>

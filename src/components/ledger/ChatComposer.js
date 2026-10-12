@@ -1,4 +1,4 @@
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {findNodeHandle, requireNativeComponent, TextInput} from 'react-native';
 import {AvoidSoftInputView} from 'react-native-avoid-softinput';
 import ioniconsGlyphs from 'react-native-vector-icons/glyphmaps/Ionicons.json';
@@ -14,6 +14,9 @@ const ChatComposer = ({
   chatInputRef,
   draftRef,
   sendAllowed,
+  ownerId,
+  receiverId,
+  conversationId,
   onSendPress,
   avoidOffset,
   onComposerLayout,
@@ -25,7 +28,6 @@ const ChatComposer = ({
   onInputBlur,
 }) => {
   const {colors} = useTheme();
-  const initialDraft = useRef(draftRef.current);
   const [inputTag, setInputTag] = useState(null);
   const bindInputRef = useCallback(input => {
     chatInputRef.current = input;
@@ -56,7 +58,7 @@ const ChatComposer = ({
       ref={bindInputRef}
       style={styles.chatInput}
       placeholder="Type a message..."
-      defaultValue={initialDraft.current}
+      defaultValue=""
       onChangeText={text => {
         draftRef.current = text;
       }}
@@ -72,6 +74,9 @@ const ChatComposer = ({
       style={styles.sendButton}
       inputTag={inputTag || 0}
       sendAllowed={sendAllowed}
+      ownerId={ownerId || ''}
+      receiverId={receiverId || ''}
+      conversationId={conversationId || ''}
       glyph={sendGlyph}
       activeColor={colors.primary}
       inactiveColor={colors.text.light}

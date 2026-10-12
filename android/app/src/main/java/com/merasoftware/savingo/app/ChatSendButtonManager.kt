@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.MotionEvent
 import android.view.View
 import android.view.accessibility.AccessibilityNodeInfo
 import com.facebook.react.bridge.Arguments
@@ -24,6 +23,11 @@ class ChatSendButton(context: ThemedReactContext) : View(context) {
   private var input: ReactEditText? = null
   var inputTag = 0
   var sendAllowed = false
+  var ownerId = ""
+  var receiverId = ""
+  var conversationId = ""
+  private var boundOwner = ""
+  private var boundConversation = ""
   var activeColor = Color.BLACK
   var inactiveColor = Color.GRAY
   var glyph = ""
@@ -35,6 +39,7 @@ class ChatSendButton(context: ThemedReactContext) : View(context) {
   private val watcher = object : TextWatcher {
     override fun beforeTextChanged(text: CharSequence?, start: Int, count: Int, after: Int) = Unit
     override fun onTextChanged(text: CharSequence?, start: Int, before: Int, count: Int) {
+      ChatComposerStorage.saveDraft(context, boundOwner, boundConversation, text?.toString().orEmpty())
       updateAvailability()
     }
     override fun afterTextChanged(text: Editable?) = Unit
@@ -49,11 +54,25 @@ class ChatSendButton(context: ThemedReactContext) : View(context) {
   }
 
   fun bindInput() {
-    if (input?.id == inputTag) return
+    if (input?.id == inputTag && boundOwner == ownerId && boundConversation == conversationId) return
+    val changedConversation = boundOwner.isNotBlank() && boundConversation.isNotBlank() &&
+      (boundOwner != ownerId || boundConversation != conversationId)
     detachInput()
     if (inputTag == 0) return
     val manager = UIManagerHelper.getUIManagerForReactTag(context as ThemedReactContext, inputTag)
     input = manager?.resolveView(inputTag) as? ReactEditText
+    boundOwner = ownerId
+    boundConversation = conversationId
+    if (ownerId.isNotBlank() && conversationId.isNotBlank()) {
+      val restored = ChatComposerStorage.draft(context, ownerId, conversationId)
+      if (changedConversation || input?.text.isNullOrEmpty()) {
+        val text = restored.orEmpty()
+        input?.setText(text)
+        input?.setSelection(text.length)
+      } else {
+        ChatComposerStorage.saveDraft(context, ownerId, conversationId, input?.text?.toString().orEmpty())
+      }
+    }
     input?.addTextChangedListener(watcher)
     updateAvailability()
   }
@@ -93,7 +112,17 @@ class ChatSendButton(context: ThemedReactContext) : View(context) {
     val reactContext = context as ThemedReactContext
     val dispatcher = UIManagerHelper.getEventDispatcherForReactTag(reactContext, id) ?: return
     val pressedAt = System.currentTimeMillis()
-    val consumed = sendAllowed
+    var consumed = sendAllowed && ownerId.isNotBlank() && receiverId.isNotBlank() && conversationId.isNotBlank()
+    var messageId = ""
+    var failure = ""
+    if (consumed) {
+      try {
+        messageId = ChatComposerStorage.consume(context, ownerId, receiverId, conversationId, text, pressedAt)
+      } catch (error: Exception) {
+        consumed = false
+        failure = "COMPOSER_WRITE_FAILED"
+      }
+    }
     if (consumed) {
       // Read and clear at the native touch boundary, before another key can run.
       // Native change events stay enabled, so draft mirrors observe the reset.
@@ -101,35 +130,16 @@ class ChatSendButton(context: ThemedReactContext) : View(context) {
     }
     dispatcher.dispatchEvent(ChatDraftSendEvent(
       UIManagerHelper.getSurfaceId(this), id, text, consumed, pressedAt,
+      messageId, ownerId, receiverId, conversationId, failure,
     ))
   }
 
-  override fun onTouchEvent(event: MotionEvent): Boolean {
-    // Clearing on DOWN disables the now-empty button; still finish that gesture.
-    if (!isEnabled && event.actionMasked == MotionEvent.ACTION_DOWN) return false
-    when (event.actionMasked) {
-      MotionEvent.ACTION_DOWN -> {
-        isPressed = true
-        submitDraft()
-        return true
-      }
-      MotionEvent.ACTION_UP -> {
-        isPressed = false
-        // Accessibility click notification only: ACTION_DOWN already submitted.
-        super.performClick()
-        return true
-      }
-      MotionEvent.ACTION_CANCEL -> {
-        isPressed = false
-        return true
-      }
-    }
-    return true
-  }
-
+  // Android's normal click handling supports cancelled gestures and accessibility.
   override fun performClick(): Boolean {
-    if (isEnabled) submitDraft()
-    return super.performClick()
+    if (!isEnabled) return false
+    submitDraft()
+    super.performClick()
+    return true
   }
 
   override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
@@ -141,6 +151,8 @@ class ChatSendButton(context: ThemedReactContext) : View(context) {
 private class ChatDraftSendEvent(
   surfaceId: Int, viewId: Int, private val text: String,
   private val consumed: Boolean, private val pressedAt: Long,
+  private val messageId: String, private val ownerId: String,
+  private val receiverId: String, private val conversationId: String, private val failure: String,
 ) : Event<ChatDraftSendEvent>(surfaceId, viewId) {
   override fun getEventName(): String = "topDraftSend"
   // Fast sends must remain distinct even while the JS thread is busy.
@@ -149,6 +161,11 @@ private class ChatDraftSendEvent(
     putString("text", text)
     putBoolean("consumed", consumed)
     putDouble("pressedAt", pressedAt.toDouble())
+    putString("messageId", messageId)
+    putString("ownerId", ownerId)
+    putString("receiverId", receiverId)
+    putString("conversationId", conversationId)
+    putString("failure", failure)
   }
 }
 
@@ -162,6 +179,15 @@ class ChatSendButtonManager : SimpleViewManager<ChatSendButton>() {
 
   @ReactProp(name = "sendAllowed")
   fun setSendAllowed(view: ChatSendButton, allowed: Boolean) { view.sendAllowed = allowed }
+
+  @ReactProp(name = "ownerId")
+  fun setOwnerId(view: ChatSendButton, owner: String?) { view.ownerId = owner.orEmpty() }
+
+  @ReactProp(name = "receiverId")
+  fun setReceiverId(view: ChatSendButton, receiver: String?) { view.receiverId = receiver.orEmpty() }
+
+  @ReactProp(name = "conversationId")
+  fun setConversationId(view: ChatSendButton, conversation: String?) { view.conversationId = conversation.orEmpty() }
 
   @ReactProp(name = "activeColor", customType = "Color")
   fun setActiveColor(view: ChatSendButton, color: Int) { view.activeColor = color }

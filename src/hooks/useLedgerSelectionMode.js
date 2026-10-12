@@ -1,6 +1,7 @@
 import {useCallback, useMemo, useState} from 'react';
 import Clipboard from '@react-native-clipboard/clipboard';
 import {showAppAlert} from '../context/AppAlertBridge';
+import {cancelComposerSend} from '../services/chatComposerHandoff';
 
 const useLedgerSelectionMode = ({
   timelineForList,
@@ -14,10 +15,11 @@ const useLedgerSelectionMode = ({
   getLatestConversationMessage,
   updateConversation,
   loadUnifiedTimeline,
+  onMessagesDeleted,
 }) => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState({});
-  const timelineItems = Array.isArray(timelineForList) ? timelineForList : [];
+  const timelineItems = useMemo(() => Array.isArray(timelineForList) ? timelineForList : [], [timelineForList]);
 
   const selectedCount = useMemo(
     () => Object.keys(selectedMessageIds).length,
@@ -123,9 +125,17 @@ const useLedgerSelectionMode = ({
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
+            let cancelledLocalIds = [];
             try {
               setLoading(true);
+              const outgoing = timelineItems.filter(item => item.type === 'message' &&
+                item.data?.sender_id === currentUserId && ids.includes(getMessageId(item.data)));
+              await Promise.all(outgoing.map(item => cancelComposerSend(getMessageId(item.data), currentUserId)));
+              cancelledLocalIds = outgoing.filter(item => item.data?.local_only).map(item => getMessageId(item.data));
+              if (cancelledLocalIds.length) onMessagesDeleted?.(cancelledLocalIds);
               deleteMessagesHard(ids);
+              const persistedIds = ids.filter(id => !cancelledLocalIds.includes(id));
+              if (persistedIds.length) onMessagesDeleted?.(persistedIds);
 
               if (conversationId) {
                 const latestMessage = getLatestConversationMessage(conversationId);
@@ -133,7 +143,7 @@ const useLedgerSelectionMode = ({
                   lastMessageText: latestMessage?.message_text || '',
                   lastMessageTimestamp: latestMessage?.timestamp || 0,
                 });
-                await loadUnifiedTimeline(conversationId);
+                await loadUnifiedTimeline(conversationId, {force: true});
               }
 
               showToast(
@@ -143,7 +153,10 @@ const useLedgerSelectionMode = ({
               clearSelectionMode();
             } catch (error) {
               console.error('Failed to delete selected messages:', error);
-              showToast('Failed to delete selected messages', 'error');
+              if (cancelledLocalIds.length === ids.length) clearSelectionMode();
+              showToast(cancelledLocalIds.length
+                ? 'Pending sends cancelled. Some history could not be deleted.'
+                : 'Failed to delete selected messages', 'error');
             } finally {
               setLoading(false);
             }
@@ -155,8 +168,12 @@ const useLedgerSelectionMode = ({
     clearSelectionMode,
     conversationId,
     deleteMessagesHard,
+    getMessageId,
     getLatestConversationMessage,
     loadUnifiedTimeline,
+    onMessagesDeleted,
+    currentUserId,
+    timelineItems,
     selectedMessageIds,
     setLoading,
     showToast,

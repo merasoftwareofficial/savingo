@@ -1,9 +1,12 @@
 import {useCallback, useEffect, useRef} from 'react';
 import {DeviceEventEmitter} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {getAuth, onAuthStateChanged} from '@react-native-firebase/auth';
 import {batchSearchUsers} from '../services/userProfileService';
-import {createConversation, getCachedUser, cacheUserData} from '../services/chatDatabase';
+import {createConversation, getCachedUser, cacheUserData, getMessageById} from '../services/chatDatabase';
 import {sendMessageToUser} from '../services/messagingService';
+import {getPendingComposerSends, acknowledgeComposerSend, isComposerSendPending} from '../services/chatComposerHandoff';
+import {upsertChatTimelineMessage} from '../services/chatTimelineUpdates';
 import {
   derivePeerUserId,
   deriveIsAppUser,
@@ -45,6 +48,7 @@ const useLedgerChatController = ({
   contact,
   routeInitialConversationId,
   perfTraceId,
+  conversationId: activeConversationId,
   contactRecordId,
   chatCachePrefix,
   readContactIdentityCache,
@@ -57,13 +61,14 @@ const useLedgerChatController = ({
   setLoadingChat,
   setUnifiedTimeline,
   showToast,
-  loadUnifiedTimeline,
   writeContactIdentityCache,
   getContactPhone,
   normalizePhoneNumber,
   perfLog,
 }) => {
   const peerUserIdRef = useRef('');
+  const activeComposerSendsRef = useRef(new Set());
+  const composerCallbacksRef = useRef(null);
 
   const getChatCacheKey = useCallback(() => {
     if (!contact?.recordID) {
@@ -616,7 +621,21 @@ const useLedgerChatController = ({
     return peerUserIdRef.current;
   }, []);
 
-  const handleSendMessage = useCallback(async ({conversationId, text, consumed, pressedAt}) => {
+  const handleSendMessage = useCallback(async ({conversationId, text, consumed, pressedAt,
+    messageId: capturedMessageId, ownerId, receiverId, failure}) => {
+    if (failure) {
+      showToast('Message could not be saved. Your text is still in the input.', 'error');
+      return;
+    }
+    if (ownerId && ownerId !== currentUserId) return;
+    if (!appUser) {
+      if (consumed) showToast('Contact unavailable. Your message remains saved.', 'error');
+      return;
+    }
+    if (receiverId && receiverId !== (appUser?.firebaseUid || appUser?.userId)) return;
+    if (capturedMessageId && activeComposerSendsRef.current.has(capturedMessageId)) return;
+    if (capturedMessageId && !isComposerSendPending(capturedMessageId, ownerId) &&
+      !getMessageById(capturedMessageId)) return;
     perfLog('chat:send-press', {
       hasConversationId: Boolean(conversationId),
       hasAppUser: Boolean(appUser),
@@ -641,7 +660,8 @@ const useLedgerChatController = ({
       return;
     }
     const now = Number(pressedAt) || Date.now();
-    const messageId = `msg_${now}_${Math.random().toString(36).substr(2, 9)}`;
+    const messageId = capturedMessageId || `msg_${now}_${Math.random().toString(36).substr(2, 9)}`;
+    activeComposerSendsRef.current.add(messageId);
 
     const optimisticMessage = {
       id: `msg-${messageId}`,
@@ -653,13 +673,14 @@ const useLedgerChatController = ({
         sender_id: currentUserId || '',
         receiver_id: appUser.firebaseUid || appUser.userId,
         delivery_status: 'sending',
+        local_only: true,
         is_read: 0,
         timestamp: now,
       },
     };
 
     setUnifiedTimeline(prev => {
-      return [optimisticMessage, ...(prev || [])];
+      return [optimisticMessage, ...(prev || []).filter(item => item.id !== optimisticMessage.id)];
     });
 
     try {
@@ -669,7 +690,20 @@ const useLedgerChatController = ({
         contactRecordId: String(contact?.recordID || ''),
         messageText: messageValue,
         messageType: 'text',
+        expectedSenderId: ownerId || currentUserId,
         timestamp: now,
+        onPersisted: async () => {
+          const saved = getMessageById(messageId);
+          if (saved) setUnifiedTimeline(prev => upsertChatTimelineMessage(prev, saved));
+          if (capturedMessageId) {
+            try {
+              await acknowledgeComposerSend(messageId, ownerId);
+            } catch (error) {
+              // The outbox is already durable; retain handoff for an idempotent replay.
+              console.error('Composer acknowledgement failed:', error);
+            }
+          }
+        },
         receiverPhoneCandidates: (() => {
           const phone = getContactPhone();
           const normalized = normalizePhoneNumber(phone);
@@ -679,9 +713,12 @@ const useLedgerChatController = ({
           return [phone, normalized, `+91${normalized}`].filter(Boolean);
         })(),
       });
-      await loadUnifiedTimeline(conversationId);
+      const saved = getMessageById(messageId);
+      if (saved) setUnifiedTimeline(prev => upsertChatTimelineMessage(prev, saved));
     } catch (error) {
       console.error('Failed to send message:', error);
+      setUnifiedTimeline(prev => (prev || []).map(item => item.id === optimisticMessage.id
+        ? {...item, data: {...item.data, delivery_status: 'failed'}} : item));
       if (error?.code === 'RECEIVER_UNAVAILABLE') {
         const unavailableContact = {
           ...contact,
@@ -711,15 +748,21 @@ const useLedgerChatController = ({
       } else {
         showToast('Failed to send message', 'error');
       }
-      await loadUnifiedTimeline(conversationId);
+      try {
+        const saved = getMessageById(messageId);
+        if (saved) setUnifiedTimeline(prev => upsertChatTimelineMessage(prev, saved));
+      } catch (readError) {
+        console.error('Failed message remains recoverable in composer storage:', readError);
+      }
+    } finally {
+      activeComposerSendsRef.current.delete(messageId);
     }
   }, [
     appUser,
     contact,
     currentUserId,
     getContactPhone,
-    loadUnifiedTimeline,
-    normalizePhoneNumber,
+      normalizePhoneNumber,
     perfLog,
     saveCachedChatIdentity,
     setAppUser,
@@ -730,16 +773,28 @@ const useLedgerChatController = ({
     buildIdentityPayload,
   ]);
 
+  composerCallbacksRef.current = {handleSendMessage, showToast};
+  const recoverablePeerId = appUser && isUserInstalled(appUser)
+    ? appUser.firebaseUid || appUser.userId : '';
   useEffect(() => {
-    const loadCurrentUserId = async () => {
-      try {
-        const uid = await AsyncStorage.getItem('firebaseUid');
-        setCurrentUserId(uid);
-      } catch (error) {
-        console.error('Failed to load current user ID:', error);
+    if (!currentUserId || !activeConversationId || !recoverablePeerId) return;
+    let cancelled = false;
+    getPendingComposerSends(currentUserId, activeConversationId).then(async records => {
+      for (const record of records) {
+        if (cancelled) break;
+        await composerCallbacksRef.current.handleSendMessage(record);
       }
-    };
-    loadCurrentUserId();
+    }).catch(error => {
+      console.error('Composer recovery failed:', error);
+      if (!cancelled) composerCallbacksRef.current.showToast('Saved messages could not be recovered yet. Reopen this chat to retry.', 'error');
+    });
+    return () => { cancelled = true; };
+  }, [currentUserId, activeConversationId, recoverablePeerId]);
+
+  useEffect(() => {
+    const auth = getAuth();
+    setCurrentUserId(auth.currentUser?.uid || null);
+    return onAuthStateChanged(auth, user => setCurrentUserId(user?.uid || null));
   }, [setCurrentUserId]);
 
   return {

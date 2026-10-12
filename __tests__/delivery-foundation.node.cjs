@@ -256,15 +256,16 @@ test('transport deadline covers a hanging response body, not only response heade
   await assert.rejects(transport.deliveryFetch('mock', {}, 10), /aborted/);
 });
 
-function messagingFixture(post) {
+function messagingFixture(post, {tokenSubject = 'A', nativeOwner = 'A'} = {}) {
   const fixture = chatFixture();
   const service = load('messagingService', {
     '@react-native-firebase/messaging': () => ({}),
-    '@react-native-firebase/auth': () => ({currentUser: {uid: 'A', getIdToken: async () => 'token'}}),
+    '@react-native-firebase/auth': () => ({currentUser: {uid: 'A', getIdToken: async () => 'token', getIdTokenResult: async () => ({token: 'token', claims: {sub: tokenSubject}})}}),
     '@react-native-async-storage/async-storage': {},
     'react-native': {AppState: {currentState: 'background'}, DeviceEventEmitter: {emit() {}}, Platform: {OS: 'android'}},
     '../context/ChatStore': {chatStore: {emitIncomingMessage() {}}},
     './chatDatabase': fixture.db,
+    './chatComposerHandoff': {isComposerOwnerCurrent: owner => owner === nativeOwner},
     './ledgerDatabase': {}, './chatNotificationV2Service': {}, './chatSystem': {},
     './phoneClaimNotificationService': {}, './phoneClaimNavigationService': {},
     './ledgerChatIdentityService': {}, './ledgerContactBootstrapService': {},
@@ -355,5 +356,272 @@ test('retry recognises receiver acknowledgement and never sends that message aga
   await service.processPendingMessages();
   assert.equal(requests, 0);
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM message_queue').get().n, 0);
+  sqlite.close();
+});
+
+test('composer handoff acknowledgement runs after commit and before transmission', async () => {
+  let acknowledged = false;
+  const {service, db, sqlite, message} = messagingFixture(async () => {
+    assert.equal(acknowledged, true);
+    return {response: {ok: true, status: 200}, body: {success: true, status: 'pushed'}};
+  });
+  await service.sendMessageToUser('B', {...message, onPersisted: async id => {
+    assert.equal(db.getMessageById(id).message_text, 'hello');
+    assert.equal(db.getPendingMessages('A').length, 1);
+    acknowledged = true;
+  }});
+  assert.equal(acknowledged, true);
+  sqlite.close();
+});
+
+test('DB commit failure never acknowledges composer text or starts networking', async () => {
+  let acknowledged = 0, requests = 0;
+  const {service, sqlite, message} = messagingFixture(async () => {requests++; return pushed;});
+  sqlite.exec("CREATE TRIGGER reject_send BEFORE INSERT ON messages BEGIN SELECT RAISE(ABORT, 'disk write failure'); END");
+  await assert.rejects(service.sendMessageToUser('B', {...message, onPersisted: async () => {acknowledged++;}}), /disk write failure/);
+  assert.equal(acknowledged, 0);
+  assert.equal(requests, 0);
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM message_queue').get().n, 0);
+  sqlite.close();
+});
+
+test('crash-gap replay acknowledges an already sent row without duplicate send or status regression', async () => {
+  let requests = 0, acknowledged = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {
+    requests++;
+    return {response: {ok: true, status: 200}, body: {success: true, status: 'pushed'}};
+  });
+  await service.sendMessageToUser('B', message);
+  await service.sendMessageToUser('B', {...message, onPersisted: async () => {acknowledged++;}});
+  assert.equal(requests, 1);
+  assert.equal(acknowledged, 1);
+  assert.equal(db.getMessageById('m1').delivery_status, 'sent');
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM messages').get().n, 1);
+  sqlite.close();
+});
+
+test('handoff replay cannot reuse an ID for another recipient or different text', async () => {
+  let requests = 0, acknowledged = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {requests++; throw new Error('offline');});
+  await service.sendMessageToUser('B', message);
+  await assert.rejects(service.sendMessageToUser('C', {...message, onPersisted: async () => {acknowledged++;}}), /identity mismatch/);
+  await assert.rejects(service.sendMessageToUser('B', {...message, messageText: 'other text'}), /identity mismatch/);
+  assert.equal(acknowledged, 0);
+  assert.equal(requests, 1);
+  assert.equal(db.getMessageById('m1').message_text, 'hello');
+  sqlite.close();
+});
+
+test('pending/queued never display sent ticks; delivered and read remain distinct', () => {
+  const {getChatMessageStatus} = load('chatMessageStatus');
+  for (const status of ['pending', 'sending', 'queued']) assert.equal(getChatMessageStatus(status).icon, 'time-outline');
+  assert.equal(getChatMessageStatus('sent').icon, 'checkmark');
+  assert.equal(getChatMessageStatus('delivered').icon, 'checkmark-done');
+  assert.equal(getChatMessageStatus('read').read, true);
+  assert.equal(getChatMessageStatus('failed').failed, true);
+});
+
+test('failed-message retry requeues original ID and produces one stored message', async () => {
+  let unavailable = true;
+  const {service, db, sqlite, message} = messagingFixture(async () => unavailable
+    ? {response: {ok: false, status: 404}, body: {code: 'RECEIVER_UNAVAILABLE'}}
+    : {response: {ok: true, status: 200}, body: {success: true, status: 'pushed'}});
+  await assert.rejects(service.sendMessageToUser('B', message), /Receiver unavailable/);
+  assert.equal(db.getMessageById('m1').delivery_status, 'failed');
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM message_queue').get().n, 0);
+  unavailable = false;
+  await service.sendMessageToUser('B', message);
+  assert.equal(db.getMessageById('m1').delivery_status, 'sent');
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM messages').get().n, 1);
+  sqlite.close();
+});
+
+test('failed retry queue rejection rolls back status and keeps failed row recoverable', () => {
+  const {db, sqlite, message} = chatFixture();
+  db.saveOutgoingMessage(message, message);
+  db.removeMessageFromQueue('m1');
+  db.updateMessageStatus('m1', 'failed');
+  sqlite.exec("CREATE TRIGGER reject_retry BEFORE INSERT ON message_queue BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+  assert.throws(() => db.requeueOutgoingMessage('m1', 'B', message), /disk full/);
+  assert.equal(db.getMessageById('m1').delivery_status, 'failed');
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM message_queue').get().n, 0);
+  sqlite.close();
+});
+
+test('overlapping sends with the same ID share one transmission', async () => {
+  let release, started, requests = 0;
+  const start = new Promise(resolve => {started = resolve;});
+  const {service, sqlite, message} = messagingFixture(async () => {
+    requests++; started();
+    return new Promise(resolve => {release = resolve;});
+  });
+  const first = service.sendMessageToUser('B', message);
+  await start;
+  assert.equal(await service.sendMessageToUser('B', message), 'm1');
+  assert.equal(requests, 1);
+  release({response: {ok: true, status: 200}, body: {success: true, status: 'pushed'}});
+  await first;
+  sqlite.close();
+});
+
+test('targeted receipt update preserves other rows and duplicate updates skip rendering', () => {
+  const {upsertChatTimelineMessage} = load('chatTimelineUpdates');
+  const first = {id: 'msg-a', type: 'message', timestamp: 10, data: {message_id: 'a', timestamp: 10, delivery_status: 'sent', local_only: false}};
+  const other = {id: 'txn-1', type: 'transaction', timestamp: 5, data: {amount: 7}};
+  const updated = upsertChatTimelineMessage([first, other], {message_id: 'a', timestamp: 10, delivery_status: 'read'});
+  assert.equal(updated[1], other);
+  assert.equal(updated[0].data.delivery_status, 'read');
+  assert.equal(upsertChatTimelineMessage(updated, {message_id: 'a', timestamp: 10, delivery_status: 'read'}), updated);
+  assert.equal(upsertChatTimelineMessage(updated, {message_id: 'older', timestamp: 1}, {insertMissing: false}), updated);
+});
+
+test('timeline reconciliation preserves unsaved failures and does not regress read status', () => {
+  const {reconcileChatTimeline, sameChatTimeline} = load('chatTimelineUpdates');
+  const prior = {id: 'msg-a', type: 'message', timestamp: 10, data: {delivery_status: 'read'}};
+  const failed = {id: 'msg-b', type: 'message', timestamp: 11, data: {delivery_status: 'failed', local_only: true}};
+  const next = reconcileChatTimeline([failed, prior], [{...prior, data: {delivery_status: 'sent'}}]);
+  assert.equal(next[0], failed);
+  assert.equal(next[1].data.delivery_status, 'read');
+  assert.equal(sameChatTimeline(next, next.map(item => ({...item}))), true);
+  assert.equal(reconcileChatTimeline(next, next), next);
+});
+
+function historyFixture() {
+  const fixture = chatFixture();
+  fixture.sqlite.exec('CREATE TABLE ledger_transactions (id INTEGER PRIMARY KEY, contact_record_id TEXT, transaction_date INTEGER, amount REAL, is_deleted INTEGER DEFAULT 0)');
+  const adapter = {execute(sql, params = []) {
+    const statement = fixture.sqlite.prepare(sql);
+    return statement.columns().length ? {rows: {_array: statement.all(...params)}} : statement.run(...params);
+  }};
+  const ledger = load('ledgerDatabase', {'react-native-quick-sqlite': {open: () => adapter}});
+  const updates = load('chatTimelineUpdates');
+  const history = load('chatHistoryPage', {'./chatDatabase': fixture.db, './ledgerDatabase': ledger, './chatTimelineUpdates': updates});
+  return {...fixture, ledger, updates, history};
+}
+
+test('mixed history cursor includes every equal-timestamp message and ledger row exactly once', () => {
+  const {sqlite, history, updates} = historyFixture();
+  const insertMessage = sqlite.prepare("INSERT INTO messages (message_id,conversation_id,sender_id,receiver_id,message_text,timestamp,created_at) VALUES (?, 'A_B','A','B','text',1000,0)");
+  const insertTransaction = sqlite.prepare("INSERT INTO ledger_transactions (id,contact_record_id,transaction_date,amount) VALUES (?, 'contact',1000,1)");
+  for(let index = 1; index <= 120; index++) {insertMessage.run('m'+index);insertTransaction.run(index);}
+  let before = null, items = [], hasMore;
+  do {
+    const page = history.loadChatHistoryPage({contactRecordId: 'contact', conversationId: 'A_B', limit: 7, before});
+    assert.ok(page.items.length <= 7);
+    items = updates.appendChatHistoryPage(items, page.items);
+    before = page.cursor; hasMore = page.hasMore;
+  } while (hasMore);
+  assert.equal(items.length, 240);
+  assert.equal(new Set(items.map(item => item.id)).size, 240);
+  assert.equal(items[0].id, 'txn-99');
+  assert.equal(items[items.length-1].id, 'msg-m1');
+  sqlite.close();
+});
+
+test('new arrivals and deletion between pages do not cause offset skips', () => {
+  const {sqlite, history} = historyFixture();
+  const insert = sqlite.prepare("INSERT INTO messages (message_id,conversation_id,sender_id,receiver_id,message_text,timestamp,created_at) VALUES (?, 'A_B','A','B','text',?,0)");
+  for(let index = 1; index <= 30; index++) insert.run('m'+index, index);
+  let page = history.loadChatHistoryPage({contactRecordId: 'contact', conversationId: 'A_B', limit: 5});
+  const ids = page.items.map(item => item.id);
+  insert.run('new', 100);
+  sqlite.exec("DELETE FROM messages WHERE message_id='m10'");
+  while(page.hasMore) {
+    page = history.loadChatHistoryPage({contactRecordId: 'contact', conversationId: 'A_B', limit: 5, before: page.cursor});
+    ids.push(...page.items.map(item => item.id));
+  }
+  assert.equal(ids.length, 29);
+  assert.equal(new Set(ids).size, 29);
+  assert.equal(ids.includes('msg-new'), false);
+  assert.equal(ids.includes('msg-m10'), false);
+  assert.equal(ids.includes('msg-m1'), true);
+  sqlite.close();
+});
+
+test('composer capture from a previous login cannot enter the new account outbox', async () => {
+  let requests = 0, acknowledged = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {requests++; return pushed;});
+  await assert.rejects(service.sendMessageToUser('B', {...message, expectedSenderId: 'previous-account', onPersisted: () => {acknowledged++;}}), /session changed/);
+  assert.equal(db.getMessageById('m1'), null);
+  assert.equal(requests, 0);assert.equal(acknowledged, 0);
+  sqlite.close();
+});
+
+test('composer-only acknowledgement and owner checks do not leak into transport payload', async () => {
+  const {service, sqlite, message} = messagingFixture(async (_fixture, _url, options) => {
+    const payload = JSON.parse(options.body);
+    assert.equal('onPersisted' in payload, false);
+    assert.equal('expectedSenderId' in payload, false);
+    return {response: {ok: true, status: 200}, body: {success: true, status: 'pushed'}};
+  });
+  await service.sendMessageToUser('B', {...message, expectedSenderId: 'A', onPersisted: async () => {}});
+  sqlite.close();
+});
+
+test('captured composer conversation must belong to the current sender/recipient pair', async () => {
+  let requests = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {requests++; return pushed;});
+  await assert.rejects(service.sendMessageToUser('B', {...message, conversationId: 'old-account_B', expectedSenderId: 'A'}), /conversation changed/);
+  assert.equal(db.getMessageById('m1'), null);assert.equal(requests, 0);
+  sqlite.close();
+});
+
+test('selected unsaved message is cancelled before deletion and cannot be revived by refresh', async () => {
+  const events = [];let buttons;let stateCalls = 0;
+  let visible = [{id: 'msg-unsaved', type: 'message', timestamp: 10, data: {message_id: 'unsaved', sender_id: 'A', message_text: 'keep safe', delivery_status: 'failed', local_only: true}}];
+  const handoff = load('chatComposerHandoff', {'react-native': {NativeModules: {ChatComposerStorage: {
+    cancelSend: async (id, owner) => {assert.equal(id, 'unsaved');assert.equal(owner, 'A');events.push('cancel');},
+  }}}});
+  const selection = load('../hooks/useLedgerSelectionMode', {
+    react: {useCallback: fn => fn, useMemo: fn => fn(), useState: () => [stateCalls++ === 0 ? false : {unsaved: true}, () => {}]},
+    '@react-native-clipboard/clipboard': {},
+    '../context/AppAlertBridge': {showAppAlert: (_title, _message, actions) => {buttons = actions;}},
+    '../services/chatComposerHandoff': handoff,
+  });
+  const {reconcileChatTimeline} = load('chatTimelineUpdates');
+  const hook = selection.default({timelineForList: visible, currentUserId: 'A', conversationId: 'A_B',
+    getContactFirstName: () => 'Peer',formatTimeLabel: () => '',showToast() {},setLoading() {},
+    deleteMessagesHard: ids => {assert.deepEqual(Array.from(ids), ['unsaved']);events.push('delete');},
+    onMessagesDeleted: () => {visible = [];events.push('remove-visible');},
+    getLatestConversationMessage: () => null,updateConversation() {},
+    loadUnifiedTimeline: async (_id, options) => {assert.equal(options.force, true);visible = reconcileChatTimeline(visible, []);},
+  });
+  hook.handleDeleteSelectedMessages();
+  await buttons.find(button => button.text === 'Delete').onPress();
+  assert.deepEqual(events, ['cancel', 'remove-visible', 'delete']);
+  assert.equal(visible.length, 0);
+});
+
+test('persisted sending row removed from DB is not retained as an optimistic orphan', () => {
+  const {reconcileChatTimeline} = load('chatTimelineUpdates');
+  assert.equal(reconcileChatTimeline([{id: 'msg-deleted', type: 'message', timestamp: 1, data: {delivery_status: 'sending', local_only: false}}], []).length, 0);
+});
+
+test('deleted outbox row observed after commit cannot start a transmission', async () => {
+  let requests = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {requests++; return pushed;});
+  await service.sendMessageToUser('B', {...message, onPersisted: async () => db.deleteMessagesHard(['m1'])});
+  assert.equal(requests, 0);
+  assert.equal(db.getMessageById('m1'), null);
+  assert.equal(db.getPendingMessages('A').length, 0);
+  sqlite.close();
+});
+
+test('stale JS login cannot persist a message under the actual native account', async () => {
+  let requests = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {requests++; return pushed;}, {nativeOwner: 'B'});
+  await assert.rejects(service.sendMessageToUser('B', message), /Session changed/);
+  assert.equal(db.getMessageById('m1'), null);
+  assert.equal(requests, 0);
+  sqlite.close();
+});
+
+test('token subject mismatch is retained locally and never sent using another user credentials', async () => {
+  let requests = 0;
+  const {service, db, sqlite, message} = messagingFixture(async () => {requests++; return pushed;}, {tokenSubject: 'B'});
+  await service.sendMessageToUser('B', message);
+  assert.equal(requests, 0);
+  assert.equal(db.getMessageById('m1').delivery_status, 'queued');
+  assert.equal(db.getPendingMessages('A').length, 1);
   sqlite.close();
 });

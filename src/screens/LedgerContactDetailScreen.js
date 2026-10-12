@@ -47,14 +47,13 @@ import LedgerContactHeader from '../components/ledger/LedgerContactHeader';
 import LedgerMetricsBar from '../components/ledger/LedgerMetricsBar';
 import LedgerSelectionToolbar from '../components/ledger/LedgerSelectionToolbar';
 import {
-  getUnifiedTimeline,
   updateLedgerTransactionAmount,
   updateLedgerTransactionNote,
   deleteTransaction,
   getTransactionById as getLedgerTransactionById,
 } from '../services/ledgerDatabase';
 import {
-  getMessages,
+  getMessageById,
   updateConversation,
   deleteMessagesHard,
   getLatestConversationMessage,
@@ -63,12 +62,15 @@ import {ensureLedgerDetailDatabasesReady} from '../services/dbLifecycleManager';
 import {
   sendDeliveryReceipt,
   syncPendingMessagesForConversation,
+  subscribeToIncomingMessages,
 } from '../services/messagingService';
 import {
   handleConversationSeen,
   resolveDirectBackBehavior,
 } from '../services/chatSystem';
-import {useChatStore} from '../context/ChatStore';
+import {useChatStore, chatStore} from '../context/ChatStore';
+import {upsertChatTimelineMessage, sameChatTimeline, reconcileChatTimeline, appendChatHistoryPage} from '../services/chatTimelineUpdates';
+import {loadChatHistoryPage} from '../services/chatHistoryPage';
 import useChatComposerLayout from '../hooks/useChatComposerLayout';
 import useLedgerChatController from '../hooks/useLedgerChatController';
 import {isInstalledAppUser} from '../services/ledgerChatIdentityService';
@@ -337,6 +339,11 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
   });
   const [unifiedTimeline, setUnifiedTimeline] = useState([]);
   const chatDraftRef = useRef('');
+  const historyPageRef = useRef(null);
+  const timelineRowsRef = useRef(unifiedTimeline);
+  timelineRowsRef.current = unifiedTimeline;
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingOlderHistory, setLoadingOlderHistory] = useState(false);
   const [loadingChat, setLoadingChat] = useState(false);
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [hasLoadedTimeline, setHasLoadedTimeline] = useState(false);
@@ -392,19 +399,30 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
   const perfLog = useCallback(() => {}, []);
 
   const applyTimelineState = useCallback((timeline, hasLoaded = true) => {
-    setUnifiedTimeline(prev => {
-      const pending = (prev || []).filter(
-        item => item?.data?.delivery_status === 'sending'
-      );
-      const incoming = Array.isArray(timeline) ? timeline : [];
-      if (pending.length === 0) return incoming;
-      const incomingIds = new Set(incoming.map(i => i.id));
-      const orphanPending = pending.filter(p => !incomingIds.has(p.id));
-      return [...orphanPending, ...incoming];
-    });
+    setUnifiedTimeline(prev => reconcileChatTimeline(prev, Array.isArray(timeline) ? (historyPageRef.current ? timeline : timeline.slice(0, 50)) : []));
     setHasLoadedTimeline(Boolean(hasLoaded));
     setTimelineLoading(false);
   }, []);
+
+  const publishedTimelineRef = useRef(null);
+  useEffect(() => {
+    if (!contactRecordId || !hasLoadedTimeline) return;
+    publishedTimelineRef.current = unifiedTimeline;
+    writeContactTimelineCache(contactRecordId, unifiedTimeline, conversationId);
+    dispatchLedgerDomainAction({type: LEDGER_ACTION_TYPES.UPSERT_TIMELINE,
+      payload: {timeline: {recordId: contactRecordId, conversationId,
+        hasLoaded: true, updatedAt: Date.now(), items: unifiedTimeline}}});
+  }, [contactRecordId, conversationId, hasLoadedTimeline, unifiedTimeline]);
+
+  useEffect(() => subscribeToIncomingMessages(event => {
+    if (!event?.messageId || !conversationId) return;
+    const message = getMessageById(event.messageId);
+    if (!message || message.conversation_id !== conversationId) return;
+    setUnifiedTimeline(prev => upsertChatTimelineMessage(prev, message,
+      {insertMissing: event.type === 'chat_message'}));
+    lastConversationVersionLoadedRef.current =
+      chatStore.getState().conversationVersion?.[conversationId] || 0;
+  }), [conversationId]);
 
   const hydrateTimelineFromCache = useCallback(cachedTimeline => {
     if (cachedTimeline) {
@@ -576,7 +594,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
           sinceTimestamp: effectiveSinceTimestamp,
           conversationId,
         });
-        await loadUnifiedTimeline(conversationId);
         if (isScreenFocusedRef.current) {
           await markActiveConversationRead(`${reason}-after-sync`);
         }
@@ -873,6 +890,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
 
   useEffect(() => {
     if (conversationId && isAppUser === true) {
+      const currentVersion = chatStore.getState().conversationVersion?.[conversationId] || 0;
       markActiveConversationRead('conversation-effect');
       const cachedTimeline = readContactTimelineCache(contactRecordId);
       const cachedTimelineConversationId = String(
@@ -885,11 +903,11 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
         cachedTimeline &&
           cachedTimelineConversationId === String(conversationId || '').trim() &&
           timelineCacheAge < CONTACT_CACHE_TTL_MS &&
-          conversationVersion === lastConversationVersionLoadedRef.current
+          currentVersion === lastConversationVersionLoadedRef.current
       );
       perfLog('trigger:conversation/effect -> loadUnifiedTimeline', {
         conversationId,
-        conversationVersion,
+        conversationVersion: currentVersion,
         isAppUser,
       });
       if (!timelineCacheFresh) {
@@ -900,7 +918,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
           conversationId,
           cachedConversationId: cachedTimelineConversationId || null,
           timelineCacheAge,
-          conversationVersion,
+          conversationVersion: currentVersion,
         });
       }
       InteractionManager.runAfterInteractions(() => {
@@ -909,7 +927,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     }
   }, [
     conversationId,
-    conversationVersion,
     isAppUser,
     contactRecordId,
     markActiveConversationRead,
@@ -1038,14 +1055,14 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     };
     loadSyncPreference();
   }, [getSyncAllEntriesStorageKey]);
-  const loadUnifiedTimeline = async (convId = null) => {
+  const loadUnifiedTimeline = async (convId = null, {force = false} = {}) => {
     if (!contactRecordId) {
       return;
     }
 
     const timelineKey = `${contactRecordId}:${String(convId || 'null')}`;
     const now = Date.now();
-    if (lastTimelineKeyRef.current === timelineKey &&
+    if (!force && lastTimelineKeyRef.current === timelineKey &&
         conversationVersion === lastConversationVersionLoadedRef.current &&
         now - lastTimelineAtRef.current < 220) {
       perfLog('loadUnifiedTimeline:skip-duplicate', {
@@ -1056,6 +1073,12 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     }
     lastTimelineKeyRef.current = timelineKey;
     lastTimelineAtRef.current = now;
+    const previousPage = historyPageRef.current;
+    const ticket = {key: timelineKey, epoch: (previousPage?.epoch || 0) + 1, loading: false};
+    const pageSize = previousPage?.key === timelineKey
+      ? Math.max(50, timelineRowsRef.current.filter(item => !item.data?.local_only).length) : 50;
+    historyPageRef.current = ticket;
+    setLoadingOlderHistory(false);
 
     const perfId = ++perfSeqRef.current;
     const startedAt = now;
@@ -1069,11 +1092,11 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     perfLog('loadUnifiedTimeline:start', {perfId, convId: convId || null, timelineKey});
 
     try {
-      const messages = convId ? await getMessages(convId) : [];
-      const timeline = getUnifiedTimeline(contactRecordId, messages);
-      const sorted = [...(timeline || [])].sort(
-        (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
-      );
+      const page = loadChatHistoryPage({contactRecordId, conversationId: convId, limit: pageSize});
+      if (historyPageRef.current !== ticket) return;
+      historyPageRef.current = {...ticket, cursor: page.cursor, hasMore: page.hasMore};
+      setHasMoreHistory(page.hasMore);
+      const sorted = page.items;
       applyTimelineState(sorted, true);
       dispatchLedgerDomainAction({
         type: LEDGER_ACTION_TYPES.UPSERT_TIMELINE,
@@ -1099,32 +1122,13 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
       perfLog('loadUnifiedTimeline:end', {
         perfId,
         convId: convId || null,
-        messageCount: messages.length,
+        messageCount: sorted.filter(item => item.type === 'message').length,
         timelineCount: sorted.length,
         durationMs: Date.now() - startedAt,
       });
     } catch (error) {
       console.error('Failed to load unified timeline:', error);
-      applyTimelineState([], true);
-      dispatchLedgerDomainAction({
-        type: LEDGER_ACTION_TYPES.UPSERT_TIMELINE,
-        payload: {
-          timeline: {
-            recordId: contactRecordId,
-            conversationId: String(convId || '').trim() || null,
-            hasLoaded: true,
-            updatedAt: Date.now(),
-            items: [],
-          },
-        },
-      });
-      writeContactTimelineCache(contactRecordId, [], convId);
-      blinkLog('timeline-load-empty-on-error', {
-        contactId: contactRecordId,
-        convId: convId || null,
-        perfId,
-        durationMs: Date.now() - startedAt,
-      });
+      showToast('Could not load history. Your current messages are kept.', 'error');
       perfLog('loadUnifiedTimeline:error', {
         perfId,
         convId: convId || null,
@@ -1164,6 +1168,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     mapContactToAppUser: chatMapContactToAppUser,
     resolvePeerUserIdForSync: chatResolvePeerUserIdForSync,
   } = useLedgerChatController({
+    conversationId,
     contact,
     routeInitialConversationId: route?.params?.initialConversationId,
     perfTraceId,
@@ -1185,6 +1190,30 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     normalizePhoneNumber,
     perfLog,
   });
+  const chatSendHandlerRef = useRef(chatHandleSendMessage);
+  chatSendHandlerRef.current = chatHandleSendMessage;
+  const retryChatMessage = useCallback(record => chatSendHandlerRef.current(record), []);
+
+  const loadOlderHistory = useCallback(async () => {
+    const pageState = historyPageRef.current;
+    const key = `${contactRecordId}:${String(conversationId || 'null')}`;
+    if (!pageState || pageState.key !== key || !pageState.hasMore || pageState.loading) return;
+    pageState.loading = true;
+    setLoadingOlderHistory(true);
+    try {
+      const page = loadChatHistoryPage({contactRecordId, conversationId, before: pageState.cursor, limit: 50});
+      if (historyPageRef.current !== pageState) return;
+      historyPageRef.current = {...pageState, cursor: page.cursor, hasMore: page.hasMore, loading: false};
+      setHasMoreHistory(page.hasMore);
+      setUnifiedTimeline(prev => appendChatHistoryPage(prev, page.items));
+    } catch (error) {
+      console.error('Older history load failed:', error);
+      showToast('Could not load older history. Try again.', 'error');
+    } finally {
+      pageState.loading = false;
+      setLoadingOlderHistory(false);
+    }
+  }, [contactRecordId, conversationId, showToast]);
 
   // Map contact to app user on screen open or contact change
   useEffect(() => {
@@ -1261,12 +1290,15 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
   });
 
   useEffect(() => {
+    let lastBase = null;
+    let lastTimeline = null;
     const syncFromDomainStore = () => {
       if (!contactRecordId) {
         return;
       }
       const baseState = selectLedgerContactBase(contactRecordId);
-      if (baseState?.updatedAt) {
+      if (baseState?.updatedAt && baseState !== lastBase) {
+        lastBase = baseState;
         setTransactions(Array.isArray(baseState.transactions) ? baseState.transactions : []);
         setBalance(
           baseState.balance || {
@@ -1279,7 +1311,9 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
       }
 
       const timelineState = selectLedgerContactTimeline(contactRecordId);
-      if (timelineState?.updatedAt || timelineState?.hasLoaded) {
+      if ((timelineState?.updatedAt || timelineState?.hasLoaded) && timelineState !== lastTimeline) {
+        lastTimeline = timelineState;
+        if (sameChatTimeline(timelineState.items, publishedTimelineRef.current || [])) return;
         applyTimelineState(
           Array.isArray(timelineState.items) ? timelineState.items : [],
           timelineState.hasLoaded === true,
@@ -1296,6 +1330,11 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     };
   }, [applyTimelineState, contactRecordId]);
 
+  const onMessagesDeleted = useCallback(ids => {
+    const deleted = new Set(ids);
+    setUnifiedTimeline(prev => prev.filter(item => item.type !== 'message' ||
+      !deleted.has(String(item.data?.message_id || item.data?.id || '').trim())));
+  }, []);
   const {
     isSelectionMode,
     selectedMessageIds,
@@ -1306,6 +1345,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     handleCopySelectedMessages,
     handleDeleteSelectedMessages,
   } = useLedgerSelectionMode({
+    onMessagesDeleted,
     timelineForList,
     currentUserId,
     getContactFirstName: () => getContactFirstName(),
@@ -2354,6 +2394,10 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
         timestamp={message.timestamp}
         text={message.message_text}
         deliveryStatusValue={message.delivery_status}
+        onRetry={retryChatMessage}
+        ownerId={message.sender_id}
+        receiverId={message.receiver_id}
+        conversationId={message.conversation_id || conversationId}
         isSent={message.sender_id === userId}
         isSelected={Boolean(messageId && selectedMessageIds[messageId])}
         isSelectionMode={isSelectionMode}
@@ -2622,6 +2666,9 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
         listKeyboardSpacerHeight={listKeyboardSpacerHeight}
         footerSpacing={spacing.md}
         shouldShowEmptyHistory={shouldShowEmptyHistory}
+        hasMoreHistory={hasMoreHistory}
+        loadingOlderHistory={loadingOlderHistory}
+        onLoadOlder={loadOlderHistory}
         renderTimelineItem={renderTimelineItem}
       />
 
@@ -2652,8 +2699,11 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
           insetsBottom={insets.bottom}
           chatInputRef={chatInputRef}
           draftRef={chatDraftRef}
-          sendAllowed={Boolean(conversationId && appUser && isInstalledAppUser(appUser))}
-          onSendPress={draft => chatHandleSendMessage({...draft, conversationId})}
+          ownerId={currentUserId}
+          receiverId={appUser?.firebaseUid || appUser?.userId}
+          conversationId={conversationId}
+          sendAllowed={Boolean(currentUserId && conversationId && appUser && isInstalledAppUser(appUser))}
+          onSendPress={chatHandleSendMessage}
           avoidOffset={chatInputAvoidOffset}
           onComposerLayout={handleComposerLayout}
           onSoftInputHeightChange={event => {
