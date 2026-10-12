@@ -1,8 +1,28 @@
-import React, {useMemo} from 'react';
+import React, {useEffect, useMemo, useRef} from 'react';
 import {View, Text} from 'react-native';
+import Reanimated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 import Icon from 'react-native-vector-icons/Ionicons';
 import TapEffect from '../ui/TapEffect';
 import {getChatMessageStatus} from '../../services/chatMessageStatus';
+
+// A just-sent optimistic bubble mounts within this window; older rows mount without the entry animation.
+const FRESH_SEND_WINDOW_MS = 1500;
+
+// Sent-bubble tone: 0 = sending/sent (gray), 1 = delivered (blue), 2 = read (green).
+const getSentTone = status => (status.read ? 2 : status.icon === 'checkmark-done' ? 1 : 0);
+const getSentIcon = status => {
+  if (status.failed) return status.icon;
+  if (status.read) return 'eye-outline';
+  if (status.icon === 'checkmark-done') return 'eye-off-outline';
+  return status.icon;
+};
 
 // Primitive message props let unchanged rows skip rendering after a timeline reload.
 const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
@@ -16,8 +36,66 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
     day: '2-digit', month: 'short', year: 'numeric',
   }) : '', [timestamp, showDate]);
     const status = getChatMessageStatus(deliveryStatusValue);
-    const tickIconName = status.icon;
-    const tickColor = status.failed ? '#EF4444' : status.read ? '#22C55E' : colors.text.light;
+    const tickIconName = getSentIcon(status);
+    const sentTone = getSentTone(status);
+    const tickColor = status.failed ? '#EF4444' : status.read ? '#16A34A' : sentTone === 1 ? '#3B82F6' : colors.text.light;
+
+    const toneBackgrounds = [
+      styles.chatBubbleSentPending.backgroundColor,
+      styles.chatBubbleSentDelivered.backgroundColor,
+      styles.chatBubbleSentRead.backgroundColor,
+    ];
+    const toneBorders = [
+      styles.chatBubbleSentPending.borderColor,
+      styles.chatBubbleSentDelivered.borderColor,
+      styles.chatBubbleSentRead.borderColor,
+    ];
+
+    const isFreshSend = useRef(
+      isSent && !status.failed && Date.now() - Number(timestamp || 0) < FRESH_SEND_WINDOW_MS,
+    ).current;
+    const toneProgress = useSharedValue(sentTone);
+    const entry = useSharedValue(isFreshSend ? 0 : 1);
+    const tickScale = useSharedValue(1);
+    const previousTone = useRef(sentTone);
+
+    useEffect(() => {
+      if (isFreshSend) {
+        entry.value = withSpring(1, {damping: 16, stiffness: 180, mass: 0.7});
+      }
+      // Entry runs once per mount only.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+      if (previousTone.current === sentTone) return;
+      previousTone.current = sentTone;
+      toneProgress.value = withTiming(sentTone, {duration: 300});
+      tickScale.value = withSequence(
+        withTiming(1.3, {duration: 120}),
+        withSpring(1, {damping: 10, stiffness: 220}),
+      );
+    }, [sentTone, toneProgress, tickScale]);
+
+    const applyTone = isSent && !isSelected;
+    const animatedBubbleStyle = useAnimatedStyle(() => {
+      const style = {
+        opacity: entry.value,
+        transform: [
+          {translateY: (1 - entry.value) * 28},
+          {scale: 0.94 + entry.value * 0.06},
+        ],
+      };
+      if (applyTone) {
+        style.backgroundColor = interpolateColor(toneProgress.value, [0, 1, 2], toneBackgrounds);
+        style.borderColor = interpolateColor(toneProgress.value, [0, 1, 2], toneBorders);
+      }
+      return style;
+    }, [applyTone, toneBackgrounds[0], toneBackgrounds[1], toneBackgrounds[2]]);
+
+    const animatedTickStyle = useAnimatedStyle(() => ({
+      transform: [{scale: tickScale.value}],
+    }));
 
     return (
       <View>
@@ -58,11 +136,12 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
                 ) : null}
               </View>
             ) : null}
-            <View
+            <Reanimated.View
               style={[
                 styles.chatBubble,
                 isSent ? styles.chatBubbleSent : styles.chatBubbleReceived,
                 isSelected && styles.chatBubbleSelected,
+                animatedBubbleStyle,
               ]}>
               <Text style={styles.chatMessageText}>{text}</Text>
               {isSent && status.failed ? (
@@ -73,15 +152,17 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
                   {timeLabel}
                 </Text>
                 {isSent && tickIconName ? (
-                  <Icon
-                    name={tickIconName}
-                    size={14}
-                    color={tickColor}
-                    style={styles.chatTickIcon}
-                  />
+                  <Reanimated.View style={animatedTickStyle}>
+                    <Icon
+                      name={tickIconName}
+                      size={14}
+                      color={tickColor}
+                      style={styles.chatTickIcon}
+                    />
+                  </Reanimated.View>
                 ) : null}
               </View>
-            </View>
+            </Reanimated.View>
           </View>
         </TapEffect>
       </View>

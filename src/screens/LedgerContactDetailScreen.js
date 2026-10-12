@@ -3418,6 +3418,19 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     backgroundColor: isDark ? hexToRgba(colors.primary, 0.26) : '#DCF8C6',
     alignSelf: 'flex-end',
   },
+  // Sent-bubble status tones read by LedgerMessageBubble: sending/sent, delivered, read.
+  chatBubbleSentPending: {
+    backgroundColor: isDark ? hexToRgba('#94A3B8', 0.22) : '#ECEFF3',
+    borderColor: isDark ? hexToRgba('#94A3B8', 0.35) : '#D5DAE1',
+  },
+  chatBubbleSentDelivered: {
+    backgroundColor: isDark ? hexToRgba('#3B82F6', 0.3) : '#DCEBFF',
+    borderColor: isDark ? hexToRgba('#3B82F6', 0.45) : '#B8D4FB',
+  },
+  chatBubbleSentRead: {
+    backgroundColor: isDark ? hexToRgba('#22C55E', 0.28) : '#DCF8C6',
+    borderColor: isDark ? hexToRgba('#22C55E', 0.42) : '#BFE8A3',
+  },
   chatBubbleReceived: {
     backgroundColor: isDark ? colors.surface : '#E8E8E8',
     alignSelf: 'flex-start',
