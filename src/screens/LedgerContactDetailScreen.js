@@ -987,35 +987,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
   }, [conversationId, isAppUser]);
 
   useEffect(() => {
-    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (isSelectionMode) {
-        clearSelectionMode();
-        return true;
-      }
-      const inputFocused = Boolean(chatInputRef.current?.isFocused?.());
-      const hasDraftMessage = Boolean(chatDraftRef.current.trim());
-      perfLog('back:hardware-press', {
-        inputFocused,
-        hasDraftMessage,
-      });
-      if (inputFocused && hasDraftMessage) {
-        chatInputRef.current?.blur?.();
-        setShouldHideActionButtons(false);
-        Keyboard.dismiss();
-        return true;
-      }
-      return handleDirectBackNavigation();
-    });
-
-    return () => backSub.remove();
-  }, [
-    navigation,
-    isSelectionMode,
-    clearSelectionMode,
-    handleDirectBackNavigation,
-  ]);
-
-  useEffect(() => {
     AvoidSoftInput.setEnabled(true);
     AvoidSoftInput.setShouldMimicIOSBehavior(false);
     AvoidSoftInput.setShowAnimationDelay(0);
@@ -1344,6 +1315,36 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     setUnifiedTimeline(prev => prev.filter(item => item.type !== 'message' ||
       !deleted.has(String(item.data?.message_id || item.data?.id || '').trim())));
   }, []);
+
+  const getTimelineItemTimestamp = item => {
+    if (!item) {
+      return null;
+    }
+    if (item.type === 'transaction') {
+      return item?.data?.transaction_date || item?.timestamp || null;
+    }
+    if (item.type === 'message') {
+      return item?.data?.timestamp || item?.timestamp || null;
+    }
+    return item?.timestamp || null;
+  };
+
+  const timelineForList = useMemo(() => {
+    const items = unifiedTimeline || [];
+    return items.map((item, index) => {
+      const currentTs = getTimelineItemTimestamp(item);
+      if (!currentTs) {
+        return {...item, showDate: false};
+      }
+      const currentDateKey = new Date(currentTs).toDateString();
+      const nextItem = items[index + 1];
+      const nextTs = getTimelineItemTimestamp(nextItem);
+      const nextDateKey = nextTs ? new Date(nextTs).toDateString() : null;
+      const showDate = !nextDateKey || currentDateKey !== nextDateKey;
+      return {...item, showDate};
+    });
+  }, [unifiedTimeline]);
+
   const {
     isSelectionMode,
     selectedMessageIds,
@@ -1367,6 +1368,35 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     updateConversation,
     loadUnifiedTimeline,
   });
+
+  useEffect(() => {
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isSelectionMode) {
+        clearSelectionMode();
+        return true;
+      }
+      const inputFocused = Boolean(chatInputRef.current?.isFocused?.());
+      const hasDraftMessage = Boolean(chatDraftRef.current.trim());
+      perfLog('back:hardware-press', {
+        inputFocused,
+        hasDraftMessage,
+      });
+      if (inputFocused && hasDraftMessage) {
+        chatInputRef.current?.blur?.();
+        setShouldHideActionButtons(false);
+        Keyboard.dismiss();
+        return true;
+      }
+      return handleDirectBackNavigation();
+    });
+
+    return () => backSub.remove();
+  }, [
+    navigation,
+    isSelectionMode,
+    clearSelectionMode,
+    handleDirectBackNavigation,
+  ]);
 
   // Load current user ID on mount
   useEffect(() => {
@@ -2291,35 +2321,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     });
     return map;
   }, [transactions]);
-
-  const getTimelineItemTimestamp = item => {
-    if (!item) {
-      return null;
-    }
-    if (item.type === 'transaction') {
-      return item?.data?.transaction_date || item?.timestamp || null;
-    }
-    if (item.type === 'message') {
-      return item?.data?.timestamp || item?.timestamp || null;
-    }
-    return item?.timestamp || null;
-  };
-
-  const timelineForList = useMemo(() => {
-    const items = unifiedTimeline || [];
-    return items.map((item, index) => {
-      const currentTs = getTimelineItemTimestamp(item);
-      if (!currentTs) {
-        return {...item, showDate: false};
-      }
-      const currentDateKey = new Date(currentTs).toDateString();
-      const nextItem = items[index + 1];
-      const nextTs = getTimelineItemTimestamp(nextItem);
-      const nextDateKey = nextTs ? new Date(nextTs).toDateString() : null;
-      const showDate = !nextDateKey || currentDateKey !== nextDateKey;
-      return {...item, showDate};
-    });
-  }, [unifiedTimeline]);
 
   const getMessageId = useCallback(message => {
     const resolvedId = message?.message_id || message?.id;
