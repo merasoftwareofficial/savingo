@@ -211,3 +211,60 @@ The Android fast-send issue was traced to stale JS text clears rejected by nativ
 
 Bubble rendering was corrected separately with `LedgerMessageBubble` memoization and timestamp-dependent date/time formatting inside that component. Debug timing improved but visible delay remained. A same-code release APK was built and installed; the owner then confirmed “haan ab fast hai”. This is qualitative release validation, not a measured frame latency. Draft-back and selection were requested but not explicitly confirmed by that reply. Temporary timing diagnostics were removed; evidence and originals remain under `E:\savingo\backup\fix11-bubble-timing` and native originals under fix10.
 
+
+## Add contact opens chat; contact saved only on first data — 2026-10-13 (owner: "perfect")
+Goal: Add Contact opens the chat page at once; the contact enters the Ledger list only when the first chat message or ledger entry exists (like normal chat apps).
+- **Add Contact:** `src/screens/LedgerAddContactScreen.js` → `handleAddContact` (now async).
+  - Before: emitted `ledger:addContact` (LedgerScreen saved it to `ledgerContacts` + toast "Contact added successfully") and `navigation.goBack()` to the list; the user had to tap the contact again.
+  - Now: `navigation.replace('LedgerContactDetail', {contact, isDraftContact})`. `isDraftContact` = not already in the list (checked with `isLedgerContactSaved`). Back returns to the Ledger list. Unused `DeviceEventEmitter` import removed.
+- **Saved-check SSOT:** `src/services/ledgerContactBootstrapService.js` → new `isLedgerContactSaved({recordID, userId})`, reusing `readLedgerContacts` + `findMatchingLedgerContact`.
+- **Draft owner:** new `src/hooks/useDraftLedgerContact.js` → `{emitContactUpdate, persistDraftContactOnce}`.
+  - `emitContactUpdate`: saved contact → emits `ledger:addContact` as before; draft → only keeps the latest identity update in a ref.
+  - `persistDraftContactOnce`: emits `ledger:addContact` once (`silent: true`, no toast) with the draft + latest identity. The only list writer is still `LedgerScreen.handleAddContact`.
+- **Triggers (the only two data points):**
+  - Chat: `src/hooks/useLedgerChatController.js` → `handleSendMessage` → `onPersisted` (message committed to the local DB).
+  - Entry: `src/hooks/useLedgerTransactionsController.js` → `submitTransaction` after `commitLedgerEntryCommand` returns `committed` (all Paid/Get/AmountEntry paths go through it).
+- **Silent identity emits:** `useLedgerChatController.js` → `emitInstalledContactRecovery`, the unresolved/uninstalled branch, and the `RECEIVER_UNAVAILABLE` branch.
+  - Before: `DeviceEventEmitter.emit('ledger:addContact', …)`, so just opening the chat page could save the contact.
+  - Now: `emitContactUpdate(…)`. Unused `DeviceEventEmitter` import removed.
+- **Wiring:** `src/screens/LedgerContactDetailScreen.js` reads `route.params.isDraftContact`, calls `useDraftLedgerContact`, and passes both functions to the two controllers.
+- **Not changed:** `LedgerScreen.handleAddContact`, the incoming upsert `messagingService.upsertLedgerContactByUser` (same `app_<uid>` recordID, so no duplicate), `LedgerContactStateContext`, `postRestoreRepairService`, `notificationNavigationService`. `UserSearchScreen.js` is unreachable (`ChatScreen` is not registered in any navigator) and was left alone.
+- **Known limit (pre-existing):** saving relies on the `LedgerScreen` listener; a draft is always opened from Ledger list → Add, so that screen is mounted.
+- **Validation:** eslint counts unchanged (9 / 24 / 1 / 0 / 0, new hook clean). `__tests__/delivery-foundation.node.cjs` 43/43. Owner accepted ("perfect"); device steps listed in the hand-over were not individually reported.
+- **Backup:** `../backup/fix19-draft-contact`.
+
+## Chat status UI + contact-list status icon — 2026-10-13 (owner: "perfect")
+UI only. Send, receipts, DB writes and backend are unchanged. Full file/function list with before/after: `QUICK_INDEX.md`, same date.
+
+**Before**
+- Every sent bubble had one colour.
+- Status was shown only as a small tick: clock, `checkmark`, `checkmark-done`, green `checkmark-done`.
+- New bubbles appeared with no animation.
+- The contact list showed only the last message text and time.
+
+**Now**
+- The sent bubble colour follows the status: gray while sending or sent, blue when delivered, green when read. The colour fades over 300 ms.
+- Icons come from `chatMessageStatus.getChatStatusIndicator`, the one place that maps status to icon and colour:
+  - sending: clock
+  - sent: `ellipse-outline` (gray)
+  - delivered: `radio-button-on` (blue)
+  - read: `eye-outline` (green)
+  - failed: red, as before
+- The icon pops when the status changes.
+- A just-sent bubble slides up and fades in. History rows do not animate.
+- The contact list shows the same icon before an outgoing last message. Receipts refresh it through `chatStore.version`.
+
+**Owner choices**
+- The owner rejected `eye-off` for delivered because it has a strike-through. No unstruck closed-eye icon exists in the bundled icon sets.
+- Envelope, phone and cloud sets were tried and dropped. The final set is the circle/eye one above.
+
+**Open note**
+- Once, right after the release install, delivered messages stayed gray. Logs showed the `delivered` receipts were written to the DB.
+- The owner later reported it fine with no code change, so the cause was not investigated.
+- Separately, some receiver-side deliveries were slow (2:46 am messages still sent-only after 11 min). Not investigated, not a UI issue.
+
+**Dev workflow**
+- Debug build with the same app id and keystore installs over release without data loss.
+- Run Metro with `npm start`, then `adb reverse tcp:8081 tcp:8081`.
+- Build with `android\gradlew.bat app:installDebug`. `npm run android` failed to find `gradlew.bat` from PowerShell.
+- Run adb from PowerShell; the Bash sandbox cannot see the device.

@@ -268,7 +268,14 @@ export const resolveInitialContactIdentity = async ({
 export const hydrateAndSyncContactIdentity = async params =>
   resolveInitialContactIdentity(params);
 
+// True when the contact is already in the saved Ledger list (by recordID or userId).
+export const isLedgerContactSaved = async ({recordID = '', userId = ''} = {}) => {
+  const contacts = await readLedgerContacts();
+  return Boolean(findMatchingLedgerContact(contacts, {recordID, userId}));
+};
+
 export default {
   resolveInitialContactIdentity,
   hydrateAndSyncContactIdentity,
+  isLedgerContactSaved,
 };

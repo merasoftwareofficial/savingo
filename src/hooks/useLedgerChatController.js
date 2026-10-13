@@ -1,5 +1,4 @@
 import {useCallback, useEffect, useRef} from 'react';
-import {DeviceEventEmitter} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {getAuth, onAuthStateChanged} from '@react-native-firebase/auth';
 import {batchSearchUsers} from '../services/userProfileService';
@@ -65,6 +64,8 @@ const useLedgerChatController = ({
   getContactPhone,
   normalizePhoneNumber,
   perfLog,
+  emitContactUpdate,
+  persistDraftContactOnce,
 }) => {
   const peerUserIdRef = useRef('');
   const activeComposerSendsRef = useRef(new Set());
@@ -146,7 +147,7 @@ const useLedgerChatController = ({
       return;
     }
 
-    DeviceEventEmitter.emit('ledger:addContact', {
+    emitContactUpdate({
       ...contact,
       recordID: String(contact?.recordID || '').trim(),
       userId: derivePeerUserId(user || contact),
@@ -159,7 +160,7 @@ const useLedgerChatController = ({
       appInstallState: normalizeInstallState(user?.appInstallState),
       silent: true,
     });
-  }, [contact]);
+  }, [contact, emitContactUpdate]);
 
   const loadCachedChatIdentity = useCallback(async () => {
     const cacheKey = getChatCacheKey();
@@ -558,7 +559,7 @@ const useLedgerChatController = ({
         // DB mein bhi uninstalled persist karo agar contact ka current state different hai
         const currentContactInstallState = normalizeInstallState(contact?.appInstallState);
         if (currentContactInstallState !== INSTALL_STATE_UNINSTALLED) {
-          DeviceEventEmitter.emit('ledger:addContact', {
+          emitContactUpdate({
             ...contact,
             recordID: String(contact?.recordID || '').trim(),
             userId: unresolvedUserId || derivePeerUserId(contact),
@@ -599,6 +600,7 @@ const useLedgerChatController = ({
   }, [
     contact,
     contactRecordId,
+    emitContactUpdate,
     getContactPhone,
     loadCachedChatIdentity,
     normalizePhoneNumber,
@@ -695,6 +697,8 @@ const useLedgerChatController = ({
         onPersisted: async () => {
           const saved = getMessageById(messageId);
           if (saved) setUnifiedTimeline(prev => upsertChatTimelineMessage(prev, saved));
+          // First durable message: a draft contact now belongs in the Ledger list.
+          persistDraftContactOnce();
           if (capturedMessageId) {
             try {
               await acknowledgeComposerSend(messageId, ownerId);
@@ -743,7 +747,7 @@ const useLedgerChatController = ({
           appInstallState: 'uninstalled',
           conversationId: String(conversationId || '').trim() || null,
         });
-        DeviceEventEmitter.emit('ledger:addContact', unavailableContact);
+        emitContactUpdate(unavailableContact);
         showToast('This user is no longer available on the app', 'error');
       } else {
         showToast('Failed to send message', 'error');
@@ -761,9 +765,11 @@ const useLedgerChatController = ({
     appUser,
     contact,
     currentUserId,
+    emitContactUpdate,
     getContactPhone,
       normalizePhoneNumber,
     perfLog,
+    persistDraftContactOnce,
     saveCachedChatIdentity,
     setAppUser,
     setIsAppUser,

@@ -1,5 +1,48 @@
 # QUICK_INDEX
 
+## Add contact opens chat; contact saved only on first data — 2026-10-13 (owner: "perfect")
+Goal: Add Contact opens the chat page at once; the contact enters the Ledger list only when the first chat message or ledger entry exists (like normal chat apps).
+- **Add Contact:** `src/screens/LedgerAddContactScreen.js` → `handleAddContact` (now async).
+  - Before: emitted `ledger:addContact` (LedgerScreen saved it to `ledgerContacts` + toast "Contact added successfully") and `navigation.goBack()` to the list; the user had to tap the contact again.
+  - Now: `navigation.replace('LedgerContactDetail', {contact, isDraftContact})`. `isDraftContact` = not already in the list (checked with `isLedgerContactSaved`). Back returns to the Ledger list. Unused `DeviceEventEmitter` import removed.
+- **Saved-check SSOT:** `src/services/ledgerContactBootstrapService.js` → new `isLedgerContactSaved({recordID, userId})`, reusing `readLedgerContacts` + `findMatchingLedgerContact`.
+- **Draft owner:** new `src/hooks/useDraftLedgerContact.js` → `{emitContactUpdate, persistDraftContactOnce}`.
+  - `emitContactUpdate`: saved contact → emits `ledger:addContact` as before; draft → only keeps the latest identity update in a ref.
+  - `persistDraftContactOnce`: emits `ledger:addContact` once (`silent: true`, no toast) with the draft + latest identity. The only list writer is still `LedgerScreen.handleAddContact`.
+- **Triggers (the only two data points):**
+  - Chat: `src/hooks/useLedgerChatController.js` → `handleSendMessage` → `onPersisted` (message committed to the local DB).
+  - Entry: `src/hooks/useLedgerTransactionsController.js` → `submitTransaction` after `commitLedgerEntryCommand` returns `committed` (all Paid/Get/AmountEntry paths go through it).
+- **Silent identity emits:** `useLedgerChatController.js` → `emitInstalledContactRecovery`, the unresolved/uninstalled branch, and the `RECEIVER_UNAVAILABLE` branch.
+  - Before: `DeviceEventEmitter.emit('ledger:addContact', …)`, so just opening the chat page could save the contact.
+  - Now: `emitContactUpdate(…)`. Unused `DeviceEventEmitter` import removed.
+- **Wiring:** `src/screens/LedgerContactDetailScreen.js` reads `route.params.isDraftContact`, calls `useDraftLedgerContact`, and passes both functions to the two controllers.
+- **Not changed:** `LedgerScreen.handleAddContact`, the incoming upsert `messagingService.upsertLedgerContactByUser` (same `app_<uid>` recordID, so no duplicate), `LedgerContactStateContext`, `postRestoreRepairService`, `notificationNavigationService`. `UserSearchScreen.js` is unreachable (`ChatScreen` is not registered in any navigator) and was left alone.
+- **Known limit (pre-existing):** saving relies on the `LedgerScreen` listener; a draft is always opened from Ledger list → Add, so that screen is mounted.
+- **Validation:** eslint counts unchanged (9 / 24 / 1 / 0 / 0, new hook clean). `__tests__/delivery-foundation.node.cjs` 43/43. Owner accepted ("perfect"); device steps listed in the hand-over were not individually reported.
+- **Backup:** `../backup/fix19-draft-contact`.
+
+## Chat status UI + contact-list status icon — 2026-10-13 (owner: "perfect")
+UI only. Send flow, `ChatSendButtonManager`, receipts, DB writes and backend were not changed.
+- **Status → icon/colour SSOT:** `src/services/chatMessageStatus.js` → new `getChatStatusIndicator(value, mutedColor)` returns `{status, tone, icon, color}`. `getChatMessageStatus` is unchanged.
+  - sending/queued: `time-outline`, gray · sent: `ellipse-outline`, gray · delivered: `radio-button-on`, blue `#3B82F6` · read: `eye-outline`, green `#16A34A` · failed: `alert-circle-outline`, red (unchanged).
+  - Before: the bubble used `checkmark` / `checkmark-done` straight from `getChatMessageStatus`, and only the read tick was coloured green.
+- **Sent bubble colour + animation:** `src/components/ledger/LedgerMessageBubble.js`.
+  - Before: every sent bubble had one colour (`chatBubbleSent`) and no animation.
+  - Now: the colour follows `tone`: 0 gray, 1 blue, 2 green. Changes fade over 300 ms with Reanimated `interpolateColor`. The icon pops (scale 1.3 → 1) when the status changes.
+  - A just-sent bubble (`isSent`, timestamp < 1.5 s old at mount) slides up 28 px with a fade and scale 0.94 → 1 (spring). Older or history rows do not animate.
+  - Selection colour still wins. `React.memo` and the primitive props are unchanged.
+- **Tone colours:** `src/screens/LedgerContactDetailScreen.js` → `createStyles`: `chatBubbleSentPending` / `chatBubbleSentDelivered` / `chatBubbleSentRead` (background + border, light and dark).
+- **Contact-list status icon:**
+  - `src/services/chatDatabase.js` → `getLatestMessagePerUser` now also selects `m.sender_id` and `m.delivery_status`, and returns `isOutgoing` (sender ≠ `other_user_id`) and `deliveryStatus`. Read only. Before: it returned `{text, timestamp}` only.
+  - `src/screens/LedgerScreen.js`: the last-activity effect spreads the chat entry. Its deps changed from `[contacts]` to `[contacts, chatStoreState.version]`, so receipts (which bump `chatStore.version` via `emitIncomingChatUpdate`) refresh the row.
+  - `src/ui/LedgerContactRow.js`: an outgoing last message shows the same icon before the text. Incoming messages show no icon.
+- **Not changed:** `LedgerConversationTimeline.js`, `useLedgerChatController.js`, `messagingService.js`, backend.
+- **Validation:**
+  - eslint problem counts are unchanged versus the backups. `__tests__/delivery-foundation.node.cjs` 43/43.
+  - The colour/animation was seen on device in a release APK. The contact-list icon and final icon set were seen through a debug build + Metro, dark theme.
+  - Not separately confirmed: light theme, the seen/green state on device, and a release build with the final icons.
+- **Backups:** `../backup/fix16-chat-ui` (bubble/screen originals), `fix17-contact-status` (DB/list/row originals), `fix18-status-icons` (eye-icon helper plus the `idea1/2/4` icon trials).
+
 ## Chat composer and bubble responsiveness — 2026-10-12
 - Android native send boundary: `android/app/src/main/java/com/merasoftware/savingo/app/ChatSendButtonManager.kt`, registered through `ChatDraftPackage.kt` / `MainApplication.kt`.
 - Draft ownership: `src/components/ledger/ChatComposer.js` uses an uncontrolled native TextInput and a ref for draft preservation; Android observes text, enables the button, snapshots and clears on touch, then emits a non-coalescing send event.

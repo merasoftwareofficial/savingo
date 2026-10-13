@@ -13,7 +13,6 @@ import {
   Platform,
   Share,
   Linking,
-  DeviceEventEmitter,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import Contacts from 'react-native-contacts';
@@ -25,6 +24,7 @@ import {useAppAlert} from '../context/AppAlertContext';
 import {useTheme} from '../context/ThemeContext';
 import {cacheUserData} from '../services/chatDatabase';
 import {readCachedSessionUser} from '../services/sessionService';
+import {isLedgerContactSaved} from '../services/ledgerContactBootstrapService';
 import {
   isInstalledAppUser,
   normalizePhoneForLookup,
@@ -701,7 +701,7 @@ const LedgerAddContactScreen = ({navigation, route}) => {
     }
   }, [getContactNameFromDevice]);
 
-  const handleAddContact = useCallback((contact) => {
+  const handleAddContact = useCallback(async (contact) => {
     const incomingUserId = String(
       contact?.userId || contact?.appUser?.firebaseUid || contact?.appUser?.userId || ''
     ).trim();
@@ -729,9 +729,22 @@ const LedgerAddContactScreen = ({navigation, route}) => {
       : contact;
 
     setOptimisticActionId(String(canonicalContact.recordID || contact.recordID));
-    DeviceEventEmitter.emit('ledger:addContact', canonicalContact);
+    // Open the chat right away. The contact is saved to the Ledger list only when
+    // the first message or entry is created (see LedgerContactDetailScreen).
+    let alreadySaved = false;
+    try {
+      alreadySaved = await isLedgerContactSaved({
+        recordID: canonicalContact.recordID,
+        userId: incomingUserId,
+      });
+    } catch (error) {
+      console.error('Failed to check saved ledger contact:', error);
+    }
     isScreenActive.current = false;
-    navigation.goBack();
+    navigation.replace('LedgerContactDetail', {
+      contact: canonicalContact,
+      isDraftContact: !alreadySaved,
+    });
   }, [navigation, getLookupPhones, selfPhoneKeys, selfUserId]);
 
   const normalizedSearch = debouncedSearch.trim().toLowerCase();

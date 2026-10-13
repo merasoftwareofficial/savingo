@@ -22,6 +22,7 @@ const useLedgerTransactionsController = ({
   setBalance,
   blinkLog,
   perfLog,
+  persistDraftContactOnce,
 }) => {
   const loadLedgerBaseData = useCallback(() => {
     const result = hydrateLedgerContactBaseFromDb({recordId: contactRecordId});
@@ -79,6 +80,11 @@ const useLedgerTransactionsController = ({
       parseLedgerEditHistory,
     });
 
+    if (commandResult?.committed === true) {
+      // First ledger entry: a draft contact now belongs in the Ledger list.
+      persistDraftContactOnce();
+    }
+
     if (syncEnabled && commandResult?.localTxn?.id) {
       perfLog('[LEDGER_SYNC] queued after local commit', {
         originTxnId: commandResult.localTxn.id,
@@ -106,6 +112,7 @@ const useLedgerTransactionsController = ({
     parseEntryDateToTimestamp,
     parseLedgerEditHistory,
     perfLog,
+    persistDraftContactOnce,
     resolvePeerUserIdForSync,
   ]);
 

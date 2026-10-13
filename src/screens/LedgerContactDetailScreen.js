@@ -76,6 +76,7 @@ import useLedgerChatController from '../hooks/useLedgerChatController';
 import {isInstalledAppUser} from '../services/ledgerChatIdentityService';
 import useLedgerSelectionMode from '../hooks/useLedgerSelectionMode';
 import useLedgerTransactionsController from '../hooks/useLedgerTransactionsController';
+import useDraftLedgerContact from '../hooks/useDraftLedgerContact';
 import {useTheme} from '../context/ThemeContext';
 import {useAppAlert} from '../context/AppAlertContext';
 
@@ -295,8 +296,13 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     openMode,
     returnTo,
     fallbackRoute,
+    isDraftContact,
   } = route.params || {};
   const contactRecordId = String(contact?.recordID || '').trim();
+  const {emitContactUpdate, persistDraftContactOnce} = useDraftLedgerContact({
+    contact,
+    isDraftContact,
+  });
   const {showToast} = useToast();
   const currencySymbol = useCurrencySymbol();
   const insets = useSafeAreaInsets();
@@ -1189,6 +1195,8 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     getContactPhone,
     normalizePhoneNumber,
     perfLog,
+    emitContactUpdate,
+    persistDraftContactOnce,
   });
   const chatSendHandlerRef = useRef(chatHandleSendMessage);
   chatSendHandlerRef.current = chatHandleSendMessage;
@@ -1287,6 +1295,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
     setBalance,
     blinkLog,
     perfLog,
+    persistDraftContactOnce,
   });
 
   useEffect(() => {
