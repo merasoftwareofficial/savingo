@@ -621,7 +621,7 @@ export const getLatestMessagePerUser = () => {
   try {
     const database = getDB();
     const result = database.execute(
-      `SELECT c.other_user_id, m.message_text as text, m.timestamp
+      `SELECT c.other_user_id, m.message_text as text, m.timestamp, m.sender_id, m.delivery_status
        FROM conversations c
        INNER JOIN messages m ON c.conversation_id = m.conversation_id
        WHERE m.is_deleted = 0
@@ -638,6 +638,9 @@ export const getLatestMessagePerUser = () => {
           map[row.other_user_id] = {
             text: row.text,
             timestamp: row.timestamp || 0,
+            // Outgoing when the sender is not the peer; the list shows its status like the chat bubble.
+            isOutgoing: Boolean(row.sender_id) && row.sender_id !== row.other_user_id,
+            deliveryStatus: row.delivery_status || '',
           };
         }
       }

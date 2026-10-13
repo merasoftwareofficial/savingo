@@ -10,19 +10,10 @@ import Reanimated, {
 } from 'react-native-reanimated';
 import Icon from 'react-native-vector-icons/Ionicons';
 import TapEffect from '../ui/TapEffect';
-import {getChatMessageStatus} from '../../services/chatMessageStatus';
+import {getChatStatusIndicator} from '../../services/chatMessageStatus';
 
 // A just-sent optimistic bubble mounts within this window; older rows mount without the entry animation.
 const FRESH_SEND_WINDOW_MS = 1500;
-
-// Sent-bubble tone: 0 = sending/sent (gray), 1 = delivered (blue), 2 = read (green).
-const getSentTone = status => (status.read ? 2 : status.icon === 'checkmark-done' ? 1 : 0);
-const getSentIcon = status => {
-  if (status.failed) return status.icon;
-  if (status.read) return 'eye-outline';
-  if (status.icon === 'checkmark-done') return 'eye-off-outline';
-  return status.icon;
-};
 
 // Primitive message props let unchanged rows skip rendering after a timeline reload.
 const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
@@ -35,10 +26,9 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
   const dateLabel = useMemo(() => showDate ? new Date(timestamp).toLocaleDateString('en-IN', {
     day: '2-digit', month: 'short', year: 'numeric',
   }) : '', [timestamp, showDate]);
-    const status = getChatMessageStatus(deliveryStatusValue);
-    const tickIconName = getSentIcon(status);
-    const sentTone = getSentTone(status);
-    const tickColor = status.failed ? '#EF4444' : status.read ? '#16A34A' : sentTone === 1 ? '#3B82F6' : colors.text.light;
+    // Sent-bubble tone: 0 = sending/sent (gray), 1 = delivered (blue), 2 = read (green).
+    const {status, tone: sentTone, icon: tickIconName, color: tickColor} =
+      getChatStatusIndicator(deliveryStatusValue, colors.text.light);
 
     const toneBackgrounds = [
       styles.chatBubbleSentPending.backgroundColor,

@@ -1,7 +1,9 @@
 import React from 'react';
 import {View, Text, Image} from 'react-native';
 import MaterialIcon from 'react-native-vector-icons/MaterialIcons';
+import Icon from 'react-native-vector-icons/Ionicons';
 import TapEffect from '../components/ui/TapEffect';
+import {getChatStatusIndicator} from '../services/chatMessageStatus';
 
 const LedgerContactRow = ({
   item,
@@ -48,6 +50,9 @@ const LedgerContactRow = ({
       : 'Settled';
   const relativeTime = lastActivity ? formatRelativeTime(lastActivity.timestamp) : '';
   const activityColor = lastActivity?.type === 'paid' ? '#EF4444' : '#10B981';
+  const chatIndicator = lastActivity?.kind === 'chat' && lastActivity.isOutgoing
+    ? getChatStatusIndicator(lastActivity.deliveryStatus, colors.text.secondary)
+    : null;
 
   return (
     <TapEffect
@@ -106,6 +111,10 @@ const LedgerContactRow = ({
           {lastActivity ? (
             lastActivity.kind === 'chat' ? (
               <Text style={styles.lastActivityText} numberOfLines={1}>
+                {chatIndicator ? (
+                  <Icon name={chatIndicator.icon} size={14} color={chatIndicator.color} />
+                ) : null}
+                {chatIndicator ? ' ' : ''}
                 {lastActivity.text}
                 {relativeTime ? (
                   <Text style={styles.lastActivityTime}>{` · ${relativeTime}`}</Text>

@@ -606,7 +606,7 @@ const LedgerScreen = ({navigation}) => {
 
     // Load last activity (chat msg + ledger entry) per contact
     try {
-      const chatMap = getLatestMessagePerUser();   // { userId: { text, timestamp } }
+      const chatMap = getLatestMessagePerUser();   // { userId: { text, timestamp, isOutgoing, deliveryStatus } }
       const ledgerMap = getLatestTransactionByContact(); // { recordId: { amount, type, note, timestamp } }
       const activityMap = {};
       contacts.forEach(c => {
@@ -618,19 +618,20 @@ const LedgerScreen = ({navigation}) => {
         if (chatEntry && ledgerEntry) {
           // Dono hain — jo latest ho woh dikhao
           if (chatTs >= ledgerTs) {
-            activityMap[c.recordID] = { kind: 'chat', text: chatEntry.text, timestamp: chatTs };
+            activityMap[c.recordID] = { kind: 'chat', ...chatEntry, timestamp: chatTs };
           } else {
             activityMap[c.recordID] = { kind: 'ledger', ...ledgerEntry };
           }
         } else if (chatEntry) {
-          activityMap[c.recordID] = { kind: 'chat', text: chatEntry.text, timestamp: chatTs };
+          activityMap[c.recordID] = { kind: 'chat', ...chatEntry, timestamp: chatTs };
         } else if (ledgerEntry) {
           activityMap[c.recordID] = { kind: 'ledger', ...ledgerEntry };
         }
       });
       setContactLastActivity(activityMap);
     } catch (_) {}
-  }, [contacts]);
+    // chatStore version bumps on every chat update/receipt, so the last-message status stays in sync.
+  }, [contacts, chatStoreState.version]);
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('ledger:chatActivity', payload => {
