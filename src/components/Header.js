@@ -15,7 +15,7 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import {useNavigation} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight, radius, typography} from '../utils/theme';
 import {
   getLatestBackupForCurrentUser,
   restoreBackupByIdFlow,
@@ -36,14 +36,23 @@ import {runStrictEcoToggleFlow} from '../services/strictEcoCoordinator';
 import {getBackupProfileGateState} from '../utils/profileSetupGate';
 import {useTheme} from '../context/ThemeContext';
 import {useAppAlert} from '../context/AppAlertContext';
-import {useResolvedHeaderTextureVariant} from '../hooks/useAdaptiveThemeAccent';
+
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) {
+    return 'Good morning';
+  }
+  if (hour < 17) {
+    return 'Good afternoon';
+  }
+  return 'Good evening';
+};
 
 const Header = ({user}) => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const {colors} = useTheme();
   const {showAlert} = useAppAlert();
-  const resolvedHeaderTheme = useResolvedHeaderTextureVariant();
   const themedAlert = React.useCallback((title, message, actions) => {
     const safeActions =
       Array.isArray(actions) && actions.length
@@ -59,16 +68,8 @@ const Header = ({user}) => {
       actions: safeActions,
     });
   }, [showAlert]);
-  const headerIconColor =
-    resolvedHeaderTheme?.iconColor || colors.headerIcon || headerTexture.icon;
-  const headerTextColor =
-    resolvedHeaderTheme?.titleColor || colors.headerText || headerTexture.title;
-  const headerSurfaceTone =
-    resolvedHeaderTheme?.surfaceTone || 'rgba(255,255,255,0.1)';
-  const headerSurfaceToneStrong =
-    resolvedHeaderTheme?.surfaceToneStrong || 'rgba(255,255,255,0.12)';
-  const headerBorderTone =
-    resolvedHeaderTheme?.borderTone || 'rgba(255,255,255,0.12)';
+  const headerIconColor = colors.headerIcon;
+  const headerTextColor = colors.headerText;
   const [strictEcoEnabled, setStrictEcoEnabled] = useState(false);
   const [restoreRunning, setRestoreRunning] = useState(false);
   const [strictEcoCaptchaVisible, setStrictEcoCaptchaVisible] = useState(false);
@@ -99,124 +100,80 @@ const Header = ({user}) => {
   const styles = React.useMemo(() => StyleSheet.create({
     container: {
       paddingHorizontal: spacing.md,
-      paddingBottom: spacing.sm + 2,
+      paddingBottom: spacing.sm,
       backgroundColor: colors.headerBg,
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(255,255,255,0.16)',
-      elevation: 0,
-      shadowColor: '#0B2A1B',
-      shadowOffset: {width: 0, height: 10},
-      shadowOpacity: 0.16,
-      shadowRadius: 18,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.headerBorder,
       overflow: 'hidden',
     },
     headerMainRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      minHeight: 78,
+      minHeight: 56,
     },
     leftSection: {
       flexDirection: 'row',
       alignItems: 'center',
       flex: 1,
-      minHeight: 64,
-      borderRadius: 22,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.sm,
+      borderRadius: radius.pill,
+      paddingVertical: 4,
+      paddingLeft: 2,
+      paddingRight: spacing.sm,
     },
     leftSectionPressed: {
-      backgroundColor: headerSurfaceToneStrong,
+      backgroundColor: colors.headerChip,
     },
     userInfo: {
       flex: 1,
-      marginLeft: spacing.md - 2,
+      marginLeft: spacing.sm + 4,
       justifyContent: 'center',
     },
     userImage: {
-      width: 58,
-      height: 58,
-      borderRadius: 29,
-      borderWidth: 2,
-      borderColor: 'rgba(255,255,255,0.3)',
+      width: 42,
+      height: 42,
+      borderRadius: 21,
     },
     userIconContainer: {
-      width: 58,
-      height: 58,
-      borderRadius: 29,
-      backgroundColor: 'rgba(18, 56, 43, 0.72)',
-      borderWidth: 2,
-      borderColor: 'rgba(255,255,255,0.24)',
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: colors.headerChip,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: '#04140d',
-      shadowOffset: {width: 0, height: 8},
-      shadowOpacity: 0.18,
-      shadowRadius: 12,
-      elevation: 2,
     },
-    profileEyebrow: {
-      fontSize: 10,
-      fontWeight: fontWeight.semibold,
-      color: 'rgba(248,250,252,0.72)',
-      letterSpacing: 0.9,
-      textTransform: 'uppercase',
-      marginBottom: 2,
+    greeting: {
+      ...typography.caption,
+      color: colors.headerSubtext,
     },
     userName: {
-      fontSize: fontSize.large + 1,
-      fontWeight: fontWeight.semibold,
+      ...typography.heading,
       color: headerTextColor,
-    },
-    userMetaRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      flexWrap: 'wrap',
-      marginTop: spacing.xs + 1,
-      rowGap: 4,
-      columnGap: 6,
-    },
-    userMetaPill: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 999,
-      backgroundColor: 'rgba(255,255,255,0.1)',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
-    },
-    userSecondaryText: {
-      fontSize: 11,
-      color: headerTextColor,
-      opacity: 0.92,
     },
     actionsRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginLeft: spacing.md - 2,
-      alignSelf: 'stretch',
-      gap: 8,
+      marginLeft: spacing.sm,
+      gap: 4,
     },
     actionButtonShell: {
-      width: 42,
-      height: 42,
-      borderRadius: 16,
-      backgroundColor: 'rgba(255,255,255,0.12)',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
     },
     backupButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 16,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       position: 'relative',
       paddingHorizontal: 0,
       paddingVertical: 0,
     },
     backupIconWrapper: {
-      width: 42,
-      height: 42,
+      width: 40,
+      height: 40,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -226,21 +183,11 @@ const Header = ({user}) => {
       height: 30,
     },
     menuButton: {
-      width: 42,
-      height: 42,
-      borderRadius: 16,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: 'rgba(255,255,255,0.12)',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
-    },
-    menuModalRoot: {
-      flex: 1,
-    },
-    menuBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: colors.overlay || 'rgba(0,0,0,0.2)',
     },
     menuCard: {
       position: 'absolute',
@@ -250,9 +197,9 @@ const Header = ({user}) => {
       borderColor: colors.border,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm + 2,
-      shadowColor: colors.black,
+      shadowColor: colors.shadow,
       shadowOffset: {width: 0, height: 16},
-      shadowOpacity: 0.18,
+      shadowOpacity: 0.14,
       shadowRadius: 24,
       elevation: 10,
     },
@@ -310,143 +257,7 @@ const Header = ({user}) => {
       color: colors.text.primary,
       fontWeight: fontWeight.semibold,
     },
-    badge: {
-      position: 'absolute',
-      top: 4,
-      right: 4,
-      backgroundColor: colors.error,
-      borderRadius: 10,
-      minWidth: 18,
-      height: 18,
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: 4,
-    },
-    badgeText: {
-      color: colors.white,
-      fontSize: 10,
-      fontWeight: fontWeight.bold,
-    },
-    modalRoot: {
-      flex: 1,
-    },
-    modalBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-      backgroundColor: colors.overlay || 'rgba(0,0,0,0.45)',
-    },
-    modalCard: {
-      backgroundColor: colors.modal || colors.card,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 12,
-      padding: spacing.md,
-      elevation: 6,
-      shadowColor: colors.black,
-      shadowOffset: {width: 0, height: 3},
-      shadowOpacity: 0.2,
-      shadowRadius: 6,
-      position: 'absolute',
-    },
-    modalHeader: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.md,
-    },
-    modalTitle: {
-      fontSize: fontSize.large,
-      fontWeight: fontWeight.semibold,
-      color: colors.text.primary,
-    },
-    modalClose: {
-      padding: 4,
-    },
-    photoWrapper: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: spacing.md,
-    },
-    profileImage: {
-      width: 120,
-      height: 120,
-      borderRadius: 60,
-    },
-    profilePlaceholder: {
-      width: 120,
-      height: 120,
-      borderRadius: 60,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    photoEditButton: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: colors.text.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: spacing.sm,
-    },
-    inputLabel: {
-      fontSize: fontSize.small,
-      color: colors.text.secondary,
-      marginBottom: spacing.xs,
-    },
-    nameInput: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.input,
-      borderRadius: 8,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 10,
-      fontSize: fontSize.regular,
-      color: colors.text.primary,
-      marginBottom: spacing.md,
-    },
-    saveButton: {
-      backgroundColor: colors.primary,
-      borderRadius: 8,
-      paddingVertical: 12,
-      alignItems: 'center',
-    },
-    saveButtonDisabled: {
-      opacity: 0.7,
-    },
-    saveButtonText: {
-      color: colors.white,
-      fontSize: fontSize.regular,
-      fontWeight: fontWeight.semibold,
-    },
-    previewOverlay: {
-      flex: 1,
-      backgroundColor: 'rgba(0,0,0,0.95)',
-      justifyContent: 'center',
-      alignItems: 'center',
-    },
-    previewBackdrop: {
-      ...StyleSheet.absoluteFillObject,
-    },
-    previewImage: {
-      width: '100%',
-      height: '100%',
-    },
-    previewClose: {
-      position: 'absolute',
-      top: spacing.lg,
-      right: spacing.lg,
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: colors.overlay || 'rgba(0,0,0,0.45)',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-  }), [
-    colors,
-    headerSurfaceToneStrong,
-    headerTextColor,
-  ]);
+  }), [colors, headerTextColor]);
 
   useEffect(() => {
     let mounted = true;
@@ -625,37 +436,22 @@ const Header = ({user}) => {
       <View style={styles.headerMainRow}>
         <Pressable
           onPress={openProfile}
-          android_ripple={{color: colors.overlay || 'rgba(255,255,255,0.14)'}}
+          android_ripple={{color: colors.headerChip}}
           style={({pressed}) => [styles.leftSection, pressed && styles.leftSectionPressed]}>
-          <View>
-            {user?.photoURL ? (
-              <Image source={{uri: user.photoURL}} style={styles.userImage} />
-            ) : (
-              <View style={styles.userIconContainer}>
-                <Icon name="person" size={32} color={headerIconColor} />
-              </View>
-            )}
-          </View>
+          {user?.photoURL ? (
+            <Image source={{uri: user.photoURL}} style={styles.userImage} />
+          ) : (
+            <View style={styles.userIconContainer}>
+              <Icon name="person" size={22} color={headerIconColor} />
+            </View>
+          )}
           <View style={styles.userInfo}>
+            <Text style={styles.greeting} numberOfLines={1}>
+              {getGreeting()}
+            </Text>
             <Text style={styles.userName} numberOfLines={1}>
               {user?.displayName || 'User'}
             </Text>
-            <View style={styles.userMetaRow}>
-              {!!user?.occupation && (
-                <View style={styles.userMetaPill}>
-                  <Text style={styles.userSecondaryText} numberOfLines={1}>
-                    {user.occupation}
-                  </Text>
-                </View>
-              )}
-              {!!user?.username && (
-                <View style={styles.userMetaPill}>
-                  <Text style={styles.userSecondaryText} numberOfLines={1}>
-                    @{user.username}
-                  </Text>
-                </View>
-              )}
-            </View>
           </View>
         </Pressable>
 
@@ -673,7 +469,7 @@ const Header = ({user}) => {
               style={styles.menuButton}
               onPress={openHeaderMenu}
               activeOpacity={0.8}>
-              <Icon name="ellipsis-vertical" size={24} color={headerIconColor} />
+              <Icon name="ellipsis-vertical" size={22} color={headerIconColor} />
             </TouchableOpacity>
           </View>
         </View>
@@ -707,8 +503,6 @@ const Header = ({user}) => {
               <ToggleSwitch
                 value={strictEcoEnabled}
                 onValueChange={handleStrictEcoToggle}
-                trackColor={{false: colors.border, true: '#86EFAC'}}
-                thumbColor={strictEcoEnabled ? '#16A34A' : colors.surface}
               />
             </View>
             <TouchableOpacity

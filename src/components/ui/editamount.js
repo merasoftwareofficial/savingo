@@ -52,7 +52,7 @@ const EditAmountModal = ({
             onPress={onSave}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color={colors.white} />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <Text style={styles.modalAddButtonText}>{saveLabel}</Text>
             )}
@@ -115,7 +115,7 @@ const createStyles = colors => StyleSheet.create({
     opacity: 0.6,
   },
   modalAddButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.medium,
     fontWeight: fontWeight.semibold,
   },

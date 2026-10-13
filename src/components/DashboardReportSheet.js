@@ -5,13 +5,13 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import RNBlobUtil from 'react-native-blob-util';
 import Share from 'react-native-share';
 import BottomSheet from './BottomSheet';
 import DashboardCalendarSheet from './DashboardCalendarSheet';
+import Button from './ui/Button';
 import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {
   buildReportData,
@@ -20,7 +20,6 @@ import {
 } from '../services/reportsystem';
 import {generateReportPdfFile} from '../services/reportPdf';
 import {useTheme} from '../context/ThemeContext';
-import {useAdaptiveAccent} from '../hooks/useAdaptiveThemeAccent';
 import {useAppAlert} from '../context/AppAlertContext';
 import {readCachedSessionUser} from '../services/sessionService';
 
@@ -45,8 +44,6 @@ const DashboardReportSheet = ({
   visible,
   onClose,
   accounts = [],
-  themeColor = '#16A34A',
-  accentPalette,
 }) => {
   const {colors} = useTheme();
   const {showAlert} = useAppAlert();
@@ -66,8 +63,6 @@ const DashboardReportSheet = ({
     });
   }, [showAlert]);
   const styles = React.useMemo(() => createStyles(colors), [colors]);
-  const fallbackAccent = useAdaptiveAccent(themeColor);
-  const accent = accentPalette || fallbackAccent;
   const [format, setFormat]               = useState('pdf');
   const [period, setPeriod]               = useState('monthly');
   const [customStart, setCustomStart]     = useState(null);
@@ -138,12 +133,11 @@ const DashboardReportSheet = ({
 
   return (
     <>
-      <BottomSheet visible={visible} onClose={onClose}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Icon name="document-text-outline" size={20} color={colors.text.primary} />
-          <Text style={styles.title}>Share Report</Text>
-        </View>
+      <BottomSheet
+        visible={visible}
+        onClose={onClose}
+        title="Share report"
+        subtitle="Export your transactions as PDF or CSV">
 
         {/* Format */}
         <Text style={styles.sectionLabel}>Format</Text>
@@ -153,17 +147,14 @@ const DashboardReportSheet = ({
               key={f.value}
               style={[
                 styles.formatBtn,
-                format === f.value && {
-                  backgroundColor: accent.accentPrimary,
-                  borderColor: accent.ring,
-                },
+                format === f.value && styles.selectedFill,
               ]}
               onPress={() => setFormat(f.value)}
               activeOpacity={0.8}>
               <Icon
                 name={f.icon}
                 size={18}
-                color={format === f.value ? '#FFFFFF' : colors.text.primary}
+                color={format === f.value ? colors.onPrimary : colors.text.primary}
               />
               <Text style={[styles.formatBtnText, format === f.value && styles.formatBtnTextActive]}>
                 {f.label}
@@ -180,10 +171,7 @@ const DashboardReportSheet = ({
               key={p.value}
               style={[
                 styles.periodChip,
-                period === p.value && {
-                  backgroundColor: accent.accentPrimary,
-                  borderColor: accent.ring,
-                },
+                period === p.value && styles.selectedFill,
               ]}
               onPress={() => setPeriod(p.value)}
               activeOpacity={0.8}>
@@ -216,7 +204,7 @@ const DashboardReportSheet = ({
             <Icon
               name="calendar-outline"
               size={18}
-              color={accent.accentPrimary}
+              color={colors.text.primary}
             />
           </TouchableOpacity>
         )}
@@ -224,24 +212,15 @@ const DashboardReportSheet = ({
         <View style={styles.divider} />
 
         {/* Share button */}
-        <TouchableOpacity
-          style={[
-            styles.generateBtn,
-            {backgroundColor: accent.accentPrimary},
-            (!canGenerate || generating) && styles.generateBtnDisabled,
-          ]}
+        <Button
+          label={generating ? 'Preparing report...' : 'Share report'}
+          icon="share-social-outline"
           onPress={handleShareReport}
           disabled={!canGenerate || generating}
-          activeOpacity={0.85}>
-          {generating ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <Icon name="share-social-outline" size={18} color="#FFFFFF" />
-          )}
-          <Text style={styles.generateBtnText}>
-            {generating ? 'Preparing report...' : 'Share Report'}
-          </Text>
-        </TouchableOpacity>
+          loading={generating}
+          haptic
+          style={styles.generateBtn}
+        />
       </BottomSheet>
 
       {/* Calendar for custom range */}
@@ -260,27 +239,12 @@ const DashboardReportSheet = ({
         accounts={accounts}
         customStartDate={customStart}
         customEndDate={customEnd}
-        themeColor={accent.accentPrimary}
-        accentPalette={accent}
       />
     </>
   );
 };
 
 const createStyles = colors => StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-  },
-  title: {
-    fontSize: fontSize.regular,
-    fontWeight: fontWeight.bold,
-    color: colors.text.primary,
-  },
   sectionLabel: {
     fontSize: 11,
     fontWeight: fontWeight.semibold,
@@ -315,7 +279,11 @@ const createStyles = colors => StyleSheet.create({
     color: colors.text.primary,
   },
   formatBtnTextActive: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
+  },
+  selectedFill: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
   periodRow: {
     flexDirection: 'row',
@@ -337,7 +305,7 @@ const createStyles = colors => StyleSheet.create({
     color: colors.text.primary,
   },
   periodChipTextActive: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
   },
   customDateRow: {
     flexDirection: 'row',
@@ -377,22 +345,8 @@ const createStyles = colors => StyleSheet.create({
     marginHorizontal: spacing.md,
   },
   generateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 12,
-    paddingVertical: 15,
-    marginBottom: spacing.sm,
     marginHorizontal: spacing.md,
-  },
-  generateBtnDisabled: {
-    opacity: 0.5,
-  },
-  generateBtnText: {
-    fontSize: fontSize.medium,
-    fontWeight: fontWeight.bold,
-    color: '#FFFFFF',
+    marginBottom: spacing.sm,
   },
 });
 

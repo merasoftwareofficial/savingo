@@ -9,11 +9,7 @@ const FILTERS = [
   {id: 'withdraw', label: 'Withdraw'},
 ];
 
-const TransactionTypeFilterBar = ({
-  value = 'all',
-  onChange,
-  themeColor = '#2563EB',
-}) => {
+const TransactionTypeFilterBar = ({value = 'all', onChange}) => {
   const {colors} = useTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
 
@@ -26,17 +22,14 @@ const TransactionTypeFilterBar = ({
             key={filter.id}
             style={[
               styles.filterButton,
-              isActive && {
-                borderColor: themeColor,
-                backgroundColor: `${themeColor}20`,
-              },
+              isActive && styles.filterButtonActive,
             ]}
             activeOpacity={0.8}
             onPress={() => onChange?.(filter.id)}>
             <Text
               style={[
                 styles.filterLabel,
-                isActive && {color: themeColor},
+                isActive && styles.filterLabelActive,
               ]}>
               {filter.label}
             </Text>
@@ -67,10 +60,17 @@ const createStyles = colors =>
       paddingVertical: 8,
       paddingHorizontal: spacing.sm,
     },
+    filterButtonActive: {
+      borderColor: colors.primary,
+      backgroundColor: colors.primary,
+    },
     filterLabel: {
       fontSize: 13,
       fontWeight: fontWeight.semibold,
       color: colors.text.secondary,
+    },
+    filterLabelActive: {
+      color: colors.onPrimary,
     },
   });
 

@@ -367,7 +367,7 @@ const NotificationSettingsScreen = ({navigation}) => {
           <TouchableOpacity
             style={styles.actionButton}
             onPress={handleTestNotification}>
-            <Icon name="send-outline" size={20} color={colors.white} />
+            <Icon name="send-outline" size={20} color={colors.onPrimary} />
             <Text style={styles.actionButtonText}>Send Test Notification</Text>
           </TouchableOpacity>
 
@@ -471,7 +471,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   thresholdButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
   },
@@ -490,7 +490,7 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: fontSize.regular,
     fontWeight: fontWeight.semibold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
   resetButton: {
     backgroundColor: colors.white,

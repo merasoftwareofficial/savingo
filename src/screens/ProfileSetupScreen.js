@@ -1235,7 +1235,7 @@ const ProfileSetupScreen = ({navigation, route}) => {
         onPress={handleContinue}
         disabled={saving}>
         {saving ? (
-          <ActivityIndicator color={colors.white} />
+          <ActivityIndicator color={colors.onPrimary} />
         ) : (
           <Text style={styles.continueButtonText}>Continue</Text>
         )}
@@ -1671,7 +1671,7 @@ const createStyles = colors => StyleSheet.create({
   },
   manualEditorBtnPrimaryText: {
     fontSize: 15,
-    color: colors.white,
+    color: colors.onPrimary,
     fontWeight: fontWeight.semibold,
   },
   continueButton: {
@@ -1686,7 +1686,7 @@ const createStyles = colors => StyleSheet.create({
     opacity: 0.6,
   },
   continueButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.medium,
     fontWeight: fontWeight.semibold,
   },

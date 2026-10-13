@@ -17,12 +17,10 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import DashboardStackNavigator from './DashboardStackNavigator';
 import LedgerStackNavigator from './LedgerStackNavigator';
 import DashboardScreen from '../screens/DashboardScreen';
-import PrototypeAccountsScreen from '../screens/PrototypeAccountsScreen';
 import Header from '../components/Header';
-import {spacing, fontSize} from '../utils/theme';
-import TexturedSurface from '../components/TexturedSurface';
-import {useHeaderTextureTheme} from '../context/HeaderTextureContext';
+import {spacing, fontSize, radius, typography} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
+import {TabBarIcon, TabBarLabel} from '../components/ui/TabBarItem';
 import {useSessionUser} from '../context/SessionUserContext';
 import {
   DEFAULT_TAB_FALLBACK,
@@ -50,7 +48,6 @@ import {
   markIntroSeen,
 } from '../utils/welcomePopupManager';
 import {perfLog, perfNow} from '../utils/perfLogger';
-import {getResolvedHeaderTextureTheme} from '../utils/headerTextureTheme';
 import {
   getAllContactBalances,
   getDistinctContactRecordIds,
@@ -59,6 +56,16 @@ import {ensureLedgerFeatureDatabasesReady} from '../services/dbLifecycleManager'
 import {requiresProfileSetup} from '../utils/profileReadiness';
 
 const Tab = createBottomTabNavigator();
+
+// Icon + label renderers shared by every tab (pill behind the active icon).
+const tabVisuals = (icon, activeIcon, label) => ({
+  tabBarIcon: ({color, focused}) => (
+    <TabBarIcon focused={focused} name={icon} activeName={activeIcon} color={color} />
+  ),
+  tabBarLabel: ({color, focused}) => (
+    <TabBarLabel focused={focused} label={label} color={color} />
+  ),
+});
 const MoreTabPlaceholder = () => null;
 const HOME_NOTIFICATION_PERMISSION_PROMPT_KEY = 'home.notificationPermissionPrompt.v1';
 
@@ -74,14 +81,9 @@ const MainTabNavigator = ({route, navigation}) => {
     showTutorial,
     initialTabOverride = '',
   } = route.params || {};
-  const {themeId: tabTextureId} = useHeaderTextureTheme();
-  const {colors, isDark} = useTheme();
+  const {colors} = useTheme();
   const {sessionUser, updateSessionUser} = useSessionUser();
   const user = sessionUser || initialUser || null;
-  const resolvedTabTheme = useMemo(
-    () => getResolvedHeaderTextureTheme(tabTextureId, isDark),
-    [tabTextureId, isDark],
-  );
   const [showHeader, setShowHeader] = useState(true);
   const [initialTab, setInitialTab] = useState(NEW_USER_TAB);
   const [defaultTabPreference, setDefaultTabPreference] = useState(DEFAULT_TAB_FALLBACK);
@@ -105,16 +107,9 @@ const MainTabNavigator = ({route, navigation}) => {
     paddingTop: 10,
     paddingHorizontal: 14,
   };
-  const styles = useMemo(
-    () => createStyles(colors, resolvedTabTheme),
-    [colors, resolvedTabTheme],
-  );
-  const tabBarActiveTintColor = isDark
-    ? colors.tabBarActive
-    : '#FFFFFF';
-  const tabBarInactiveTintColor = isDark
-    ? colors.tabBarInactive
-    : '#E5E7EB';
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const tabBarActiveTintColor = colors.tabBarActive;
+  const tabBarInactiveTintColor = colors.tabBarInactive;
 
   useEffect(() => {
     const initialFirebaseUid = String(initialUser?.firebaseUid || '').trim();
@@ -384,13 +379,8 @@ const MainTabNavigator = ({route, navigation}) => {
 
 
   const tabBarBackground = useMemo(
-    () => () => (
-      <TexturedSurface
-        style={styles.tabTextureWrap}
-        themeId={tabTextureId}
-      />
-    ),
-    [styles.tabTextureWrap, tabTextureId]
+    () => () => <View style={styles.tabBarSurface} />,
+    [styles.tabBarSurface]
   );
 
   const showSetupRibbon = showHeader && requiresProfileSetup(user);
@@ -416,18 +406,15 @@ const MainTabNavigator = ({route, navigation}) => {
           activeOpacity={0.85}
           onPress={handleSetupNowPress}>
           <View style={styles.setupRibbonIconWrap}>
-            <Icon name="sparkles-outline" size={16} color={colors.primary} />
+            <Icon name="sparkles-outline" size={16} color={colors.onPrimary} />
           </View>
           <View style={styles.setupRibbonContent}>
-            <Text style={styles.setupRibbonTitle}>Profile setup pending</Text>
-            <Text style={styles.setupRibbonText}>
-              Complete profile setup to unlock all features.
+            <Text style={styles.setupRibbonTitle}>Complete your profile</Text>
+            <Text style={styles.setupRibbonText} numberOfLines={1}>
+              Unlock all features in a minute
             </Text>
           </View>
-          <View style={styles.setupRibbonCtaWrap}>
-            <Text style={styles.setupRibbonCta}>Setup now</Text>
-            <Icon name="chevron-forward" size={16} color={colors.primary} />
-          </View>
+          <Icon name="chevron-forward" size={18} color={colors.text.secondary} />
         </TouchableOpacity>
       ) : null}
       <Tab.Navigator
@@ -440,21 +427,14 @@ const MainTabNavigator = ({route, navigation}) => {
           tabBarInactiveTintColor,
           tabBarBackground,
           tabBarStyle: baseTabBarStyle,
-          tabBarLabelStyle: {
-            fontSize: fontSize.small,
-            fontWeight: '500',
-          },
         }}
         backBehavior="history">
         <Tab.Screen
           name="Dashboard"
           component={DashboardScreen}
           options={{
-            tabBarLabel: 'Dashboard',
+            ...tabVisuals('bar-chart-outline', 'bar-chart', 'Dashboard'),
             ...getTabBadgeOptions('Dashboard'),
-            tabBarIcon: ({color, size, focused}) => (
-              <Icon name={focused ? 'bar-chart' : 'bar-chart-outline'} size={size} color={color} />
-            ),
           }}
           listeners={{
             tabPress: () => {
@@ -474,11 +454,8 @@ const MainTabNavigator = ({route, navigation}) => {
           component={DashboardStackNavigator}
           initialParams={{user, showTutorial}}
           options={{
-            tabBarLabel: 'Accounts',
+            ...tabVisuals('wallet-outline', 'wallet', 'Accounts'),
             ...getTabBadgeOptions('Accounts'),
-            tabBarIcon: ({color, size, focused}) => (
-              <Icon name={focused ? 'wallet' : 'wallet-outline'} size={size} color={color} />
-            ),
           }}
           listeners={{
             tabPress: () => {
@@ -497,15 +474,8 @@ const MainTabNavigator = ({route, navigation}) => {
           name="Ledger"
           component={LedgerStackNavigator}
           options={{
-            tabBarLabel: 'Ledger Talk',
+            ...tabVisuals('chatbox-ellipses-outline', 'chatbox-ellipses', 'Ledger Talk'),
             ...getTabBadgeOptions('Ledger'),
-            tabBarIcon: ({color, size, focused}) => (
-              <Icon
-                name={focused ? 'chatbox-ellipses' : 'chatbox-ellipses-outline'}
-                size={size}
-                color={color}
-              />
-            ),
           }}
           listeners={{
             tabPress: () => {
@@ -524,9 +494,7 @@ const MainTabNavigator = ({route, navigation}) => {
           name="More"
           component={MoreTabPlaceholder}
           options={{
-            tabBarIcon: ({color, size, focused}) => (
-              <Icon name={focused ? 'grid' : 'grid-outline'} size={size} color={color} />
-            ),
+            ...tabVisuals('grid-outline', 'grid', 'More'),
           }}
           listeners={({navigation}) => ({
             tabPress: e => {
@@ -575,59 +543,43 @@ const MainTabNavigator = ({route, navigation}) => {
   );
 };
 
-const createStyles = (colors, resolvedTabTheme) =>
+const createStyles = colors =>
   StyleSheet.create({
   setupRibbon: {
     marginHorizontal: spacing.md,
     marginTop: spacing.sm + 2,
     marginBottom: spacing.xs,
-    paddingHorizontal: spacing.md - 2,
+    paddingHorizontal: spacing.sm + 4,
     paddingVertical: spacing.sm + 2,
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 18,
-    backgroundColor: colors.panel,
+    borderRadius: radius.lg,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: colors.shadow,
-    shadowOffset: {width: 0, height: 8},
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 2,
   },
   setupRibbonIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceMuted,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm + 2,
+    marginRight: spacing.sm + 4,
   },
   setupRibbonContent: {
     flex: 1,
     marginRight: spacing.sm,
   },
   setupRibbonTitle: {
-    color: colors.text.primary,
-    fontSize: fontSize.small,
+    ...typography.label,
     fontWeight: '700',
-    marginBottom: 2,
+    color: colors.text.primary,
   },
   setupRibbonText: {
-    color: colors.text.primary,
-    fontSize: fontSize.small,
-    fontWeight: '500',
-    lineHeight: 17,
-  },
-  setupRibbonCtaWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: colors.surfaceMuted,
-    gap: 2,
+    ...typography.caption,
+    color: colors.text.secondary,
+    marginTop: 1,
   },
   defaultTabBadge: {
     minWidth: 16,
@@ -637,7 +589,7 @@ const createStyles = (colors, resolvedTabTheme) =>
     lineHeight: 16,
     fontWeight: '700',
     backgroundColor: colors.primary,
-    color: '#FFFFFF',
+    color: colors.onPrimary,
   },
   defaultTabHint: {
     position: 'absolute',
@@ -682,26 +634,21 @@ const createStyles = (colors, resolvedTabTheme) =>
     borderColor: colors.border,
     transform: [{rotate: '45deg'}],
   },
-  tabTextureWrap: {
+  tabBarSurface: {
     ...StyleSheet.absoluteFillObject,
     top: 6,
     left: 14,
     right: 14,
     bottom: 0,
     borderRadius: 24,
-    overflow: 'hidden',
+    backgroundColor: colors.tabBarBg,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.border,
     shadowColor: colors.shadow,
-    shadowOffset: {width: 0, height: 14},
-    shadowOpacity: 0.18,
-    shadowRadius: 22,
-    elevation: 10,
-  },
-  setupRibbonCta: {
-    color: colors.primary,
-    fontSize: fontSize.small,
-    fontWeight: '700',
+    shadowOffset: {width: 0, height: 10},
+    shadowOpacity: 0.08,
+    shadowRadius: 18,
+    elevation: 6,
   },
   });
 

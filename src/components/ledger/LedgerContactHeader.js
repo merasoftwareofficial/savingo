@@ -1,10 +1,10 @@
 import React from 'react';
 import {Image, Text, TouchableOpacity, View} from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
+import {useTheme} from '../../context/ThemeContext';
 
 const LedgerContactHeader = ({
   styles,
-  headerTexture,
   onBackPress,
   onProfilePress,
   onMenuPress,
@@ -13,10 +13,12 @@ const LedgerContactHeader = ({
   contactName,
   headerPhone,
   menuButtonRef,
-}) => (
+}) => {
+  const {colors} = useTheme();
+  return (
   <>
     <TouchableOpacity style={styles.backButton} onPress={onBackPress}>
-      <Icon name="chevron-back" size={22} color={headerTexture.icon} />
+      <Icon name="chevron-back" size={22} color={colors.headerIcon} />
     </TouchableOpacity>
     <TouchableOpacity
       style={styles.headerIdentity}
@@ -51,10 +53,11 @@ const LedgerContactHeader = ({
         accessibilityRole="button"
         accessibilityLabel="Contact menu"
         activeOpacity={0.8}>
-        <Icon name="ellipsis-vertical" size={24} color={headerTexture.icon} />
+        <Icon name="ellipsis-vertical" size={24} color={colors.headerIcon} />
       </TouchableOpacity>
     </View>
   </>
-);
+  );
+};
 
 export default React.memo(LedgerContactHeader);

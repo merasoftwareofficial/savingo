@@ -79,7 +79,7 @@ const EditRemarkModalSheet = ({
             onPress={onSave}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color={colors.white} />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <Text style={styles.modalAddButtonText}>Save</Text>
             )}
@@ -144,7 +144,7 @@ const createStyles = colors => StyleSheet.create({
   modalAddButtonText: {
     fontSize: fontSize.regular,
     fontWeight: fontWeight.bold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
 });
 

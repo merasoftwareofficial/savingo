@@ -4,8 +4,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import TexturedSurface from '../TexturedSurface';
 import {useTheme} from '../../context/ThemeContext';
-import {useResolvedHeaderTextureVariant} from '../../hooks/useAdaptiveThemeAccent';
-import {fontSize, fontWeight, spacing, headerTexture} from '../../utils/theme';
+import {fontSize, fontWeight, spacing} from '../../utils/theme';
 
 const PageHeader = ({
   title = '',
@@ -30,26 +29,14 @@ const PageHeader = ({
 }) => {
   const insets = useSafeAreaInsets();
   const {colors} = useTheme();
-  const resolvedHeaderTheme = useResolvedHeaderTextureVariant();
   const styles = React.useMemo(() => createStyles(), []);
   const isSolid = variant === 'solid';
   const headerIconColor =
-    backIconColor ||
-    (isSolid
-      ? colors.text.primary
-      : resolvedHeaderTheme?.iconColor || colors.headerIcon || headerTexture.icon);
+    backIconColor || (isSolid ? colors.text.primary : colors.headerIcon);
   const headerTitleColor =
-    titleColor ||
-    (isSolid
-      ? colors.text.primary
-      : resolvedHeaderTheme?.titleColor || colors.headerText || headerTexture.title);
+    titleColor || (isSolid ? colors.text.primary : colors.headerText);
   const headerSubtitleColor =
-    subtitleColor ||
-    (isSolid
-      ? colors.text.secondary
-      : resolvedHeaderTheme?.subtitleColor || 'rgba(255,255,255,0.82)');
-  const headerBorderColor =
-    resolvedHeaderTheme?.borderColor || headerTexture.border;
+    subtitleColor || (isSolid ? colors.text.secondary : colors.headerSubtext);
   const HeaderContainer = isSolid ? View : TexturedSurface;
   const headerContainerStyle = [
     isSolid ? styles.solidHeader : styles.texturedHeader,
@@ -57,7 +44,7 @@ const PageHeader = ({
       paddingTop: 42 + insets.top,
       marginTop: isSolid ? 0 : -insets.top,
       backgroundColor: isSolid ? colors.surface : undefined,
-      borderBottomColor: isSolid ? colors.border : headerBorderColor,
+      borderBottomColor: isSolid ? colors.border : colors.headerBorder,
     },
     containerStyle,
   ];

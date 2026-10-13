@@ -1,33 +1,40 @@
 import React from 'react';
-import {StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
-import BsCashCoin from './icons/BsCashCoin';
-import {spacing, fontSize, fontWeight} from '../utils/theme';
+import {StyleSheet, Text, View} from 'react-native';
+import {spacing, typography} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
+import AccountIcon from './account/AccountIcon';
+import Card from './ui/Card';
+import IconCircle from './ui/IconCircle';
+import ListRow from './ui/ListRow';
+import SectionHeader from './ui/SectionHeader';
+import EmptyState from './ui/EmptyState';
 
-const formatDateTime = timestamp => {
-  const date = new Date(Number(timestamp) || Date.now());
-  return date.toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
+const formatTime = timestamp =>
+  new Date(Number(timestamp) || Date.now()).toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
     hour12: true,
   });
+
+const startOfDay = timestamp => {
+  const date = new Date(Number(timestamp) || Date.now());
+  date.setHours(0, 0, 0, 0);
+  return date.getTime();
 };
 
-const withAlpha = (hex, alpha) => {
-  if (!hex || typeof hex !== 'string') {
-    return `rgba(148, 163, 184, ${alpha})`;
+// "Today" / "Yesterday" / "12 Oct"
+export const formatDayLabel = timestamp => {
+  const day = startOfDay(timestamp);
+  const today = startOfDay(Date.now());
+  const oneDay = 24 * 60 * 60 * 1000;
+  if (day === today) {
+    return 'Today';
   }
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) {
-    return `rgba(148, 163, 184, ${alpha})`;
+  if (day === today - oneDay) {
+    return 'Yesterday';
   }
-  const red = parseInt(normalized.slice(0, 2), 16);
-  const green = parseInt(normalized.slice(2, 4), 16);
-  const blue = parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
+  return new Date(day).toLocaleDateString('en-IN', {day: 'numeric', month: 'short'});
 };
 
 const resolveFallbackIconByType = accountType => {
@@ -41,12 +48,18 @@ const resolveFallbackIconByType = accountType => {
   return 'wallet-outline';
 };
 
-const renderAccountIcon = (iconName, size, color) => {
-  if (iconName === 'bs-cash-coin') {
-    return <BsCashCoin size={size} color={color} />;
-  }
-  return <Icon name={iconName || 'wallet-outline'} size={size} color={color} />;
-};
+// Keeps entry order; starts a new group whenever the calendar day changes.
+const groupByDay = entries =>
+  entries.reduce((groups, entry) => {
+    const label = formatDayLabel(entry?.transaction_date);
+    const last = groups[groups.length - 1];
+    if (last && last.label === label) {
+      last.items.push(entry);
+    } else {
+      groups.push({label, items: [entry]});
+    }
+    return groups;
+  }, []);
 
 const RecentTransactionsPreview = ({
   entries,
@@ -57,77 +70,62 @@ const RecentTransactionsPreview = ({
   const {colors} = useTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
   const list = Array.isArray(entries) ? entries : [];
+  const groups = React.useMemo(() => groupByDay(list), [list]);
 
   return (
     <View style={styles.sectionWrap}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Recent Entries</Text>
-        <TouchableOpacity onPress={onPressFullHistory} style={styles.fullHistoryCta}>
-          <Text style={styles.fullHistoryText}>Full History</Text>
-          <Icon name="chevron-forward" size={15} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
+      <SectionHeader
+        title="Recent entries"
+        actionLabel="See all"
+        onAction={onPressFullHistory}
+      />
 
       {list.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Icon name="receipt-outline" size={20} color={colors.text.light} />
-          <Text style={styles.emptyText}>No add/withdraw entries yet</Text>
-        </View>
+        <Card padded={false}>
+          <EmptyState
+            compact
+            icon="receipt-outline"
+            title="No entries yet"
+            message="Money you add or withdraw will show up here."
+          />
+        </Card>
       ) : (
-        <View style={styles.card}>
-          {list.map((entry, index) => {
-            const amount = Number(entry?.amount) || 0;
-            const isAdded = amount > 0;
-            const accountName = String(entry?.account_name || 'Account').trim() || 'Account';
-            const typeLabel = isAdded ? 'Added' : 'Withdraw';
-            const signedAmount = `${isAdded ? '+' : '-'}${formatCurrency(Math.abs(amount))}`;
-            const remarkText = String(
-              entry?.remark || (isAdded ? 'Added amount' : 'Withdrawal'),
-            );
-            const accountIcon = String(entry?.icon || '').trim();
-            const accountType = String(entry?.account_type || '').trim().toLowerCase();
-            const iconColor = String(entry?.icon_color || '').trim() || colors.primary;
-            const fallbackIcon = resolveFallbackIconByType(accountType);
-            return (
-              <TouchableOpacity
-                key={String(entry?.id || `${entry?.account_id || 'acc'}-${index}`)}
-                onPress={() => onPressEntry?.(entry)}
-                style={[
-                  styles.row,
-                  index < list.length - 1 && styles.rowDivider,
-                ]}
-                activeOpacity={0.75}>
-                <View
-                  style={[
-                    styles.accountBadge,
-                    {
-                      backgroundColor: withAlpha(iconColor, 0.14),
-                      borderColor: withAlpha(iconColor, 0.32),
-                    },
-                  ]}>
-                  {renderAccountIcon(accountIcon || fallbackIcon, 18, iconColor)}
-                </View>
-
-                <View style={styles.rowContent}>
-                  <View style={styles.rowTop}>
-                    <Text style={styles.accountName} numberOfLines={1}>{accountName}</Text>
-                    <Text style={[styles.amountText, isAdded ? styles.amountAdded : styles.amountWithdraw]}>
-                      {signedAmount}
-                    </Text>
-                  </View>
-                  <Text style={styles.remarkText} numberOfLines={1}>
-                    {remarkText}
-                  </Text>
-                  <View style={styles.rowMeta}>
-                    <Text style={styles.typeText}>{typeLabel}</Text>
-                    <Text style={styles.dot}>•</Text>
-                    <Text style={styles.timeText}>{formatDateTime(entry?.transaction_date)}</Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        <Card padded={false} style={styles.card}>
+          {groups.map(group => (
+            <View key={group.label}>
+              <Text style={styles.dayLabel}>{group.label}</Text>
+              {group.items.map((entry, index) => {
+                const amount = Number(entry?.amount) || 0;
+                const isAdded = amount > 0;
+                const accountName = String(entry?.account_name || 'Account').trim() || 'Account';
+                const remarkText = String(
+                  entry?.remark || (isAdded ? 'Added amount' : 'Withdrawal'),
+                );
+                const iconColor = String(entry?.icon_color || '').trim() || colors.text.secondary;
+                const iconName =
+                  String(entry?.icon || '').trim() ||
+                  resolveFallbackIconByType(entry?.account_type);
+                return (
+                  <ListRow
+                    key={String(entry?.id || `${entry?.account_id || 'acc'}-${index}`)}
+                    leading={
+                      <IconCircle size={38} background={withAlpha(iconColor, 0.14)}>
+                        <AccountIcon name={iconName} size={18} color={iconColor} />
+                      </IconCircle>
+                    }
+                    title={accountName}
+                    subtitle={remarkText}
+                    value={`${isAdded ? '+' : '-'}${formatCurrency(Math.abs(amount))}`}
+                    valueColor={isAdded ? colors.success : colors.error}
+                    valueSubtitle={formatTime(entry?.transaction_date)}
+                    divider={index < group.items.length - 1}
+                    onPress={() => onPressEntry?.(entry)}
+                  />
+                );
+              })}
+            </View>
+          ))}
+        </Card>
       )}
     </View>
   );
@@ -136,127 +134,19 @@ const RecentTransactionsPreview = ({
 const createStyles = colors =>
   StyleSheet.create({
     sectionWrap: {
-      marginTop: spacing.sm,
-      marginBottom: spacing.md,
-    },
-    headerRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.xs,
-      paddingHorizontal: spacing.xs,
-    },
-    title: {
-      fontSize: 12,
-      fontWeight: fontWeight.bold,
-      color: colors.text.secondary,
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-    },
-    fullHistoryCta: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 2,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 999,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-    },
-    fullHistoryText: {
-      fontSize: fontSize.small,
-      color: colors.primary,
-      fontWeight: fontWeight.semibold,
+      marginBottom: spacing.lg,
     },
     card: {
-      backgroundColor: colors.panel,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 12,
       overflow: 'hidden',
+      paddingBottom: spacing.xs,
     },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.sm,
-    },
-    rowDivider: {
-      borderBottomWidth: 1,
-      borderBottomColor: colors.border,
-    },
-    accountBadge: {
-      width: 34,
-      height: 34,
-      borderRadius: 17,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-    },
-    rowContent: {
-      flex: 1,
-      minWidth: 0,
-    },
-    rowTop: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.sm,
-    },
-    accountName: {
-      flex: 1,
-      fontSize: fontSize.medium,
-      color: colors.text.primary,
-      fontWeight: fontWeight.semibold,
-    },
-    amountText: {
-      fontSize: fontSize.medium,
-      fontWeight: fontWeight.bold,
-    },
-    amountAdded: {
-      color: '#16A34A',
-    },
-    amountWithdraw: {
-      color: '#DC2626',
-    },
-    rowMeta: {
-      marginTop: 2,
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-    },
-    remarkText: {
-      marginTop: 2,
-      fontSize: fontSize.small,
+    dayLabel: {
+      ...typography.caption,
+      fontWeight: '600',
       color: colors.text.secondary,
-    },
-    typeText: {
-      fontSize: fontSize.small,
-      color: colors.text.secondary,
-    },
-    dot: {
-      fontSize: fontSize.small,
-      color: colors.text.light,
-    },
-    timeText: {
-      fontSize: fontSize.small,
-      color: colors.text.secondary,
-    },
-    emptyCard: {
-      backgroundColor: colors.panel,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: 12,
-      paddingVertical: spacing.md,
-      alignItems: 'center',
-      gap: spacing.xs,
-    },
-    emptyText: {
-      fontSize: fontSize.small,
-      color: colors.text.secondary,
-      fontWeight: fontWeight.medium,
+      paddingHorizontal: spacing.md,
+      paddingTop: spacing.md - 4,
+      paddingBottom: 2,
     },
   });
 

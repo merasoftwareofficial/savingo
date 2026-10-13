@@ -1,187 +1,94 @@
 import React from 'react';
-import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
-import {fontWeight, fontSize} from '../utils/theme';
+import {View, Text, StyleSheet} from 'react-native';
+import {spacing, typography} from '../utils/theme';
+import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 import {ACCOUNT_COLOR_MIGRATION_MAP} from './accountVisuals';
+import Card from '../components/ui/Card';
+import IconCircle from '../components/ui/IconCircle';
+import ListRow from '../components/ui/ListRow';
+import SectionHeader from '../components/ui/SectionHeader';
 
+// Accounts tab list: one rounded card per account type, header shows the section total.
 const CombinedAccountsCard = ({
   sections,
-  colors,
-  isDark,
   cardPeriodText,
   formatCurrency,
   onOpenAccount,
   onOpenContextMenu,
   renderAccountIcon,
-  hexToRgba,
-  fallbackIcon,
-  fallbackColor,
 }) => {
-  const styles = React.useMemo(() => createStyles(colors), [colors]);
-
-  const hasAnyAccounts = sections.some(s => s.accounts && s.accounts.length > 0);
-  if (!hasAnyAccounts) {
+  const {colors} = useTheme();
+  const visibleSections = sections.filter(section => section.accounts?.length > 0);
+  if (visibleSections.length === 0) {
     return null;
   }
 
   return (
-    <View style={[styles.shadow, {shadowColor: colors.shadow}]}>
-      <View style={[styles.card, {backgroundColor: colors.card, borderColor: colors.border}]}>
-        {sections.map((section, sectionIdx) => {
-          if (!section.accounts || section.accounts.length === 0) {
-            return null;
-          }
-
-          const isFirstSection = sectionIdx === 0;
-          const accountRows = section.accounts.map((account, accountIdx) => {
-            const storedColor = account.icon_color ? ACCOUNT_COLOR_MIGRATION_MAP[account.icon_color] || account.icon_color : null;
-            const accentColor = storedColor || fallbackColor;
-            const isLastRow =
-              accountIdx === section.accounts.length - 1 &&
-              sectionIdx === sections.filter(s => s.accounts?.length > 0).length - 1;
-
-            return (
-              <TouchableOpacity
-                key={account.id}
-                onPress={() => onOpenAccount(account)}
-                onLongPress={() => onOpenContextMenu(account)}
-                activeOpacity={0.7}>
-                <View style={[styles.row, !isLastRow && {borderBottomColor: colors.border}, isLastRow && {borderBottomWidth: 0}]}>
-                  {/* Icon */}
-                  <View style={[styles.iconBox, {backgroundColor: hexToRgba(accentColor, 0.12)}]}>
-                    {renderAccountIcon(account.icon || fallbackIcon, 24, accentColor)}
-                  </View>
-
-                  {/* Name + Period */}
-                  <View style={styles.nameCol}>
-                    <View style={styles.nameRow}>
-                      <Text style={[styles.name, {color: colors.text.primary}]} numberOfLines={1}>
-                        {account.account_name}
-                      </Text>
-                    </View>
-                    <Text style={[styles.period, {color: colors.text.secondary}]}>
-                      {cardPeriodText}
-                    </Text>
-                  </View>
-
-                  {/* Amount Secondary */}
-                  <View style={styles.amountCol}>
-                    <Text style={[styles.amountLbl, {color: colors.text.secondary}]}>
-                      {section.secondaryLabel}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.amountVal,
-                        {
-                          color: section.highlightSecondaryValue
-                            ? accentColor
-                            : colors.text.primary,
-                        },
-                      ]}>
-                      {formatCurrency(section.getSecondaryValue(account))}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            );
-          });
-
-          return (
-            <View key={section.title}>
-              {/* Subsection Header */}
-              {!isFirstSection && (
-                <View style={[styles.subsectionDivider, {borderBottomColor: colors.border}]} />
-              )}
-              <View style={[styles.subsectionHeader, {borderBottomColor: colors.border}]}>
-                <Text style={[styles.subsectionTitle, {color: colors.text.primary}]}>
-                  {section.title}
+    <View>
+      {visibleSections.map(section => {
+        const sectionTotal = section.accounts.reduce(
+          (sum, account) => sum + (Number(section.getSecondaryValue(account)) || 0),
+          0,
+        );
+        return (
+          <View key={section.title} style={styles.section}>
+            <SectionHeader
+              title={section.title}
+              right={
+                <Text style={[styles.sectionTotal, {color: colors.text.primary}]}>
+                  {formatCurrency(sectionTotal)}
                 </Text>
-              </View>
-
-              {/* Account Rows */}
-              {accountRows}
-            </View>
-          );
-        })}
-      </View>
+              }
+            />
+            <Card padded={false} style={styles.card}>
+              {section.accounts.map((account, index) => {
+                const storedColor = account.icon_color
+                  ? ACCOUNT_COLOR_MIGRATION_MAP[account.icon_color] || account.icon_color
+                  : null;
+                const accentColor = storedColor || section.fallbackColor || colors.text.secondary;
+                return (
+                  <ListRow
+                    key={account.id}
+                    leading={
+                      <IconCircle
+                        size={42}
+                        shape="square"
+                        background={withAlpha(accentColor, 0.14)}>
+                        {renderAccountIcon(account.icon || section.fallbackIcon, 22, accentColor)}
+                      </IconCircle>
+                    }
+                    title={account.account_name}
+                    subtitle={cardPeriodText}
+                    value={formatCurrency(section.getSecondaryValue(account))}
+                    valueSubtitle={section.secondaryLabel}
+                    leadingSize={42}
+                    chevron
+                    divider={index < section.accounts.length - 1}
+                    onPress={() => onOpenAccount(account)}
+                    onLongPress={() => onOpenContextMenu(account)}
+                  />
+                );
+              })}
+            </Card>
+          </View>
+        );
+      })}
     </View>
   );
 };
 
-const createStyles = colors =>
-  StyleSheet.create({
-    shadow: {
-      marginBottom: 8,
-      marginHorizontal: 6,
-      shadowOffset: {width: 0, height: 1},
-      shadowOpacity: 0.05,
-      shadowRadius: 4,
-      elevation: 3,
-    },
-    card: {
-      overflow: 'hidden',
-    },
-    subsectionHeader: {
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      borderBottomWidth: 1.5,
-      borderBottomColor: colors.text.primary,
-      backgroundColor: colors.card,
-    },
-    subsectionTitle: {
-      fontSize: 13,
-      fontWeight: fontWeight.semibold,
-    },
-    subsectionDivider: {
-      height: 0.8,
-      marginHorizontal: 0,
-    },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      paddingHorizontal: 12,
-      paddingVertical: 11,
-      borderBottomWidth: 0.8,
-      borderBottomColor: colors.text.primary,
-    },
-    iconBox: {
-      width: 42,
-      height: 42,
-      borderRadius: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginRight: 10,
-      flexShrink: 0,
-    },
-    nameCol: {
-      flex: 1,
-      minWidth: 0,
-    },
-    nameRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 3,
-    },
-    name: {
-      fontSize: 16,
-      fontWeight: fontWeight.bold,
-      flexShrink: 1,
-    },
-    period: {
-      fontSize: 11,
-      marginTop: 2,
-    },
-    amountCol: {
-      alignItems: 'flex-end',
-      marginLeft: 10,
-    },
-    amountVal: {
-      fontSize: fontSize.large,
-      fontWeight: fontWeight.bold,
-    },
-    amountLbl: {
-      fontSize: 13,
-      marginTop: 1,
-    },
-  });
+const styles = StyleSheet.create({
+  section: {
+    marginBottom: spacing.lg - 4,
+  },
+  card: {
+    overflow: 'hidden',
+  },
+  sectionTotal: {
+    ...typography.label,
+    fontWeight: '700',
+  },
+});
 
 export default React.memo(CombinedAccountsCard);

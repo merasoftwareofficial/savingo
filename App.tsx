@@ -25,15 +25,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import AppNavigator, {navigationRef} from './src/navigation/AppNavigator';
 import { ChatStoreProvider } from './src/context/ChatStore';
 import { ToastProvider } from './src/context/ToastContext';
-import {
-  HeaderTextureProvider,
-  useHeaderTextureTheme,
-} from './src/context/HeaderTextureContext';
 import {ThemeProvider, useTheme} from './src/context/ThemeContext';
 import {AppAlertProvider} from './src/context/AppAlertContext';
 import {SessionUserProvider} from './src/context/SessionUserContext';
 import ToastContainer from './src/components/ToastContainer';
-import {getResolvedHeaderTextureTheme} from './src/utils/headerTextureTheme';
 import {
   checkAndroidInAppUpdate,
   openPlayStoreForUpdate,
@@ -92,8 +87,7 @@ const PHONE_CLAIM_SYNC_COOLDOWN_MS = 30000;
 const LAUNCH_SURFACE_COLOR = '#111318';
 
 function AppContent() {
-  const {themeId, isReady: isHeaderThemeReady} = useHeaderTextureTheme();
-  const {colors, isDark, isReady: isThemeReady} = useTheme();
+  const {colors, isReady: isThemeReady} = useTheme();
   const [updateVisible, setUpdateVisible] = useState(false);
   const [updatingNow, setUpdatingNow] = useState(false);
   const [storeUrl, setStoreUrl] = useState('');
@@ -104,11 +98,7 @@ function AppContent() {
   const [phoneClaimActionLoading, setPhoneClaimActionLoading] = useState('');
   const appContentMountedAtRef = useRef(perfNow());
   const styles = useMemo(() => createStyles(colors), [colors]);
-  const resolvedHeaderTheme = useMemo(
-    () => getResolvedHeaderTextureTheme(themeId, isDark),
-    [themeId, isDark],
-  );
-  const statusBarStyle = resolvedHeaderTheme?.statusBarStyle || 'light-content';
+  const statusBarStyle = colors.statusBarStyle;
   const checkingUpdateRef = useRef(false);
   const currentAppStateRef = useRef(AppState.currentState);
   const navigationReadyRef = useRef(false);
@@ -1187,7 +1177,7 @@ function AppContent() {
 
   const visibleVersionLabel = currentVersionName || storeVersion;
 
-  if (!isHeaderThemeReady || !isThemeReady || !startupP0Ready) {
+  if (!isThemeReady || !startupP0Ready) {
     return <View style={styles.launchFallback} />;
   }
 
@@ -1289,13 +1279,11 @@ function App() {
 
   return (
     <SafeAreaProvider>
-      <HeaderTextureProvider>
-        <ThemeProvider>
-          <AppAlertProvider>
-            <AppContent />
-          </AppAlertProvider>
-        </ThemeProvider>
-      </HeaderTextureProvider>
+      <ThemeProvider>
+        <AppAlertProvider>
+          <AppContent />
+        </AppAlertProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -1353,13 +1341,13 @@ const createStyles = colors => StyleSheet.create({
     fontWeight: '600',
   },
   updateNowButton: {
-    backgroundColor: '#16A34A',
+    backgroundColor: colors.primary,
     borderRadius: 10,
     paddingVertical: 10,
     paddingHorizontal: 14,
   },
   updateNowText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: '700',
   },

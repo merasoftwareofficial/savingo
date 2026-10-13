@@ -195,7 +195,7 @@ const createStyles = colors =>
     height: '100%',
   },
   avatarText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.large,
     fontWeight: fontWeight.bold,
   },

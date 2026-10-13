@@ -8,6 +8,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 
 const PhoneClaimDecisionModal = ({
   visible,
@@ -57,7 +58,7 @@ const PhoneClaimDecisionModal = ({
             disabled={Boolean(loadingAction)}
             onPress={onReject}>
             {loadingAction === 'reject' ? (
-              <ActivityIndicator size="small" color="#B91C1C" />
+              <ActivityIndicator size="small" color={colors.error} />
             ) : (
               <Text style={styles.rejectButtonText}>Reject</Text>
             )}
@@ -123,13 +124,13 @@ const createStyles = colors => StyleSheet.create({
   },
   approveButton: {
     marginTop: 20,
-    backgroundColor: '#16A34A',
+    backgroundColor: colors.success,
   },
   rejectButton: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: withAlpha(colors.error, 0.1),
   },
   blockButton: {
-    backgroundColor: '#0F172A',
+    backgroundColor: colors.primary,
   },
   approveButtonText: {
     color: colors.white,
@@ -137,12 +138,12 @@ const createStyles = colors => StyleSheet.create({
     fontWeight: '700',
   },
   rejectButtonText: {
-    color: '#B91C1C',
+    color: colors.error,
     fontSize: 15,
     fontWeight: '700',
   },
   blockButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 15,
     fontWeight: '700',
   },

@@ -1,13 +1,12 @@
 import React, {useState} from 'react';
-import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
-import Icon from 'react-native-vector-icons/Ionicons';
-import {fontWeight} from '../utils/theme';
+import {View, StyleSheet} from 'react-native';
+import {spacing} from '../utils/theme';
+import SegmentedControl from './ui/SegmentedControl';
 import DashboardQuickPeriodSheet, {QUICK_PERIODS} from './DashboardQuickPeriodSheet';
 import DashboardCalendarSheet from './DashboardCalendarSheet';
 import DashboardReportSheet from './DashboardReportSheet';
 import MetricsBar from './ui/MetricsBar';
 import {useTheme} from '../context/ThemeContext';
-import {useAdaptiveAccent} from '../hooks/useAdaptiveThemeAccent';
 
 const MONTHS_SHORT = [
   'Jan','Feb','Mar','Apr','May','Jun',
@@ -42,73 +41,35 @@ const DashboardPeriodFilter = ({
   filteredWithdrawals,
   netBalance,
   formatCurrencyRupee,
-  themeColor,
-  accentPalette,
   metricsLabels,
 }) => {
-  const {colors, isDark} = useTheme();
+  const {colors} = useTheme();
   const [activeSheet, setActiveSheet] = useState(null);
   const styles = React.useMemo(() => createStyles(colors), [colors]);
-  const fallbackAccent = useAdaptiveAccent(themeColor || '#2563EB');
-  const accent = accentPalette || fallbackAccent;
-  const inactiveTone = isDark
-    ? colors.text.secondary
-    : colors.text.light;
-  const activeTone = accent.accentSelection || accent.accentPrimary;
 
   const hasCalendarFilter = !!customStartDate || selectedMonth !== null;
   const activeModeKey = hasCalendarFilter ? 'calendar' : 'quick';
   const activeTabKey = activeSheet || activeModeKey;
+  const segments = SELECTOR_TABS.map(tab => ({
+    ...tab,
+    label:
+      tab.key === 'quick'
+        ? hasCalendarFilter
+          ? tab.label
+          : QUICK_PERIODS.find(p => p.value === quickPeriod)?.label || tab.label
+        : tab.key === 'calendar'
+        ? formatDateRange(customStartDate, customEndDate)
+        : tab.label,
+  }));
 
   return (
     <View style={styles.wrapper}>
-      {/* Tab row */}
-      <View style={styles.tabRow}>
-        {SELECTOR_TABS.map(tab => {
-          const isActive = activeTabKey === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={styles.tab}
-              onPress={() => setActiveSheet(tab.key)}
-              accessibilityRole="tab"
-              accessibilityState={{selected: isActive}}
-              activeOpacity={0.7}>
-              <View style={styles.periodRow}>
-                <Icon
-                  name={tab.icon}
-                  size={18}
-                  color={
-                    isActive
-                      ? activeTone
-                      : inactiveTone
-                  }
-                />
-                <View style={styles.periodTextCol}>
-                  <Text
-                    style={[
-                      styles.tabLabel,
-                      isActive && styles.tabLabelActive,
-                      !isActive && isDark && styles.tabLabelDark,
-                      isActive && {
-                        color: activeTone,
-                      },
-                    ]}>
-                    {tab.key === 'quick'
-                      ? (hasCalendarFilter ? tab.label : QUICK_PERIODS.find(p => p.value === quickPeriod)?.label || tab.label)
-                      : tab.key === 'calendar'
-                      ? formatDateRange(customStartDate, customEndDate)
-                      : tab.label}
-                  </Text>
-                </View>
-              </View>
-              <View style={[styles.tabIndicator, isActive && {backgroundColor: activeTone}]} />
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <View style={styles.divider} />
+      <SegmentedControl
+        options={segments}
+        value={activeTabKey}
+        onChange={setActiveSheet}
+        style={styles.segmented}
+      />
 
       {/* Metrics */}
       <MetricsBar
@@ -116,8 +77,6 @@ const DashboardPeriodFilter = ({
         expenses={filteredWithdrawals}
         netBalance={netBalance}
         formatCurrencyRupee={formatCurrencyRupee}
-        accentPalette={accent}
-        themeColor={accent.accentPrimary}
         labels={metricsLabels}
       />
 
@@ -136,15 +95,11 @@ const DashboardPeriodFilter = ({
         accounts={accounts}
         customStartDate={customStartDate}
         customEndDate={customEndDate}
-        themeColor={accent.accentPrimary}
-        accentPalette={accent}
       />
       <DashboardReportSheet
         visible={activeSheet === 'report'}
         onClose={() => setActiveSheet(null)}
         accounts={accounts}
-        themeColor={accent.accentPrimary}
-        accentPalette={accent}
         formatCurrencyRupee={formatCurrencyRupee}
       />
     </View>
@@ -153,53 +108,15 @@ const DashboardPeriodFilter = ({
 
 const createStyles = colors => StyleSheet.create({
   wrapper: {
-    backgroundColor: colors.card,
-  },
-  tabRow: {
-    flexDirection: 'row',
-    backgroundColor: colors.card,
-    borderBottomWidth: 1,
+    backgroundColor: colors.headerBg,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md - 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
-    paddingHorizontal: 8,
   },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 54,
-    paddingHorizontal: 6,
-    paddingTop: 4,
-  },
-  tabLabel: {
-    fontSize: 14,
-    fontWeight: fontWeight.medium,
-    color: colors.text.primary,
-  },
-  tabLabelDark: {
-    color: colors.text.secondary,
-  },
-  tabLabelActive: {
-    fontWeight: fontWeight.semibold,
-  },
-  periodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginVertical: 4,
-  },
-  periodTextCol: {
-    alignItems: 'flex-start',
-  },
-  tabIndicator: {
-    height: 3,
-    width: '100%',
-    borderRadius: 3,
-    marginTop: 5,
-    backgroundColor: 'transparent',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: colors.border,
+  segmented: {
+    marginBottom: spacing.sm + 2,
   },
 });
 

@@ -1,6 +1,7 @@
 import React, {useMemo} from 'react';
 import {TouchableOpacity, Text, StyleSheet, ActivityIndicator} from 'react-native';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 
 const createVariants = colors => ({
   neutralOutline: {
@@ -9,23 +10,23 @@ const createVariants = colors => ({
     backgroundColor: colors.card,
   },
   successOutline: {
-    borderColor: '#4ADE80',
-    textColor: '#16A34A',
+    borderColor: withAlpha(colors.success, 0.5),
+    textColor: colors.success,
     backgroundColor: colors.card,
   },
   expensesOutline: {
-    borderColor: '#10B981',
-    textColor: '#10B981',
+    borderColor: withAlpha(colors.success, 0.5),
+    textColor: colors.success,
     backgroundColor: colors.card,
   },
   dangerOutline: {
-    borderColor: '#FCA5A5',
-    textColor: '#EF4444',
+    borderColor: withAlpha(colors.error, 0.5),
+    textColor: colors.error,
     backgroundColor: colors.card,
   },
   primaryOutline: {
-    borderColor: '#93C5FD',
-    textColor: '#2563EB',
+    borderColor: colors.primaryRing,
+    textColor: colors.text.primary,
     backgroundColor: colors.card,
   },
 });

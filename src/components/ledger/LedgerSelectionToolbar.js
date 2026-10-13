@@ -6,7 +6,6 @@ import {useTheme} from '../../context/ThemeContext';
 const LedgerSelectionToolbar = ({
   styles,
   selectedCount,
-  headerTexture,
   onClearSelection,
   onCopySelected,
   onDeleteSelected,
@@ -19,7 +18,7 @@ const LedgerSelectionToolbar = ({
       onPress={onClearSelection}
       accessibilityRole="button"
       accessibilityLabel="Cancel selection">
-      <Icon name="close" size={24} color={headerTexture.icon} />
+      <Icon name="close" size={24} color={colors.headerIcon} />
     </TouchableOpacity>
     <Text style={styles.selectionHeaderTitle} numberOfLines={1}>
       {`${selectedCount} selected`}
@@ -33,7 +32,7 @@ const LedgerSelectionToolbar = ({
         <Icon
           name="copy-outline"
           size={22}
-          color={selectedCount > 0 ? headerTexture.icon : colors.text.light}
+          color={selectedCount > 0 ? colors.headerIcon : colors.text.light}
         />
       </TouchableOpacity>
       <TouchableOpacity

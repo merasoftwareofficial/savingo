@@ -50,6 +50,7 @@ import {getStrictEcoEnabled} from '../services/strictEcoService';
 import {ensureEcoTransactionEntryAllowed} from '../services/strictEcoCoordinator';
 import {useAppAlert} from '../context/AppAlertContext';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 import {evaluateCreditLimitDelta} from '../services/creditLimitPolicy';
 
 const ITEM_HEIGHT = 44;
@@ -1849,7 +1850,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                       account?.icon_color || colors.text.primary,
                     )
                   : (
-                    <Icon name="person-circle-outline" size={34} color="#1D4ED8" />
+                    <Icon name="person-circle-outline" size={34} color={colors.text.primary} />
                   )}
               </View>
               <View style={styles.targetInfoTextWrap}>
@@ -1874,7 +1875,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                 onChangeText={handleAmountChange}
                 keyboardType="numeric"
                 placeholder="0"
-                placeholderTextColor="#C0C4CC"
+                placeholderTextColor={colors.text.light}
                 showSoftInputOnFocus={!isEffectiveCalculatorMode}
                 editable={!isEffectiveCalculatorMode}
                 caretHidden={isEffectiveCalculatorMode}
@@ -1943,7 +1944,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                   <TouchableOpacity
                     style={styles.attachmentRemoveButton}
                     onPress={() => setWithdrawReceiptUri('')}>
-                    <Icon name="close" size={14} color="#DC2626" />
+                    <Icon name="close" size={14} color={colors.error} />
                   </TouchableOpacity>
                 </View>
               )}
@@ -1955,7 +1956,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                       activeOpacity={0.85}
                       onPress={() => handleAttachSourceSelect('camera')}>
                       <View style={[styles.attachInlineIconWrap, styles.attachInlineCameraBg]}>
-                        <Icon name="camera-outline" size={20} color="#0B57D0" />
+                        <Icon name="camera-outline" size={20} color={colors.text.primary} />
                       </View>
                       <Text style={styles.attachInlineText}>Camera</Text>
                     </TouchableOpacity>
@@ -1964,7 +1965,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                       activeOpacity={0.85}
                       onPress={() => handleAttachSourceSelect('gallery')}>
                       <View style={[styles.attachInlineIconWrap, styles.attachInlineGalleryBg]}>
-                        <Icon name="images-outline" size={20} color="#0A7A43" />
+                        <Icon name="images-outline" size={20} color={colors.success} />
                       </View>
                       <Text style={styles.attachInlineText}>Gallery</Text>
                     </TouchableOpacity>
@@ -2016,7 +2017,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                     <TouchableOpacity
                       style={styles.withdrawCameraButton}
                       onPress={openWithdrawCameraOptions}>
-                      <Icon name="camera-outline" size={18} color="#DC2626" />
+                      <Icon name="camera-outline" size={18} color={colors.error} />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -2179,7 +2180,7 @@ const AmountEntryScreen = ({route, navigation}) => {
                           </View>
                           {selected && (
                             <View style={styles.transferSelectedTick}>
-                              <Icon name="checkmark" size={14} color="#FFFFFF" />
+                              <Icon name="checkmark" size={14} color={colors.onPrimary} />
                             </View>
                           )}
                         </TouchableOpacity>
@@ -2557,7 +2558,7 @@ const createStyles = colors => StyleSheet.create({
   },
   currencySymbol: {
     fontSize: 28,
-    color: '#9CA3AF',
+    color: colors.text.light,
     marginRight: 6,
   },
   amountInput: {
@@ -2865,7 +2866,7 @@ const createStyles = colors => StyleSheet.create({
     elevation: 8,
   },
   transferConfirmText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -2960,7 +2961,7 @@ const createStyles = colors => StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#10B981',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2970,7 +2971,7 @@ const createStyles = colors => StyleSheet.create({
   },
   transferAddBankText: {
     fontSize: 13,
-    color: '#93C5FD',
+    color: colors.text.secondary,
     fontWeight: '600',
   },
   transferPrimaryButton: {
@@ -2982,7 +2983,7 @@ const createStyles = colors => StyleSheet.create({
   transferPrimaryButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: colors.white,
+    color: colors.onPrimary,
   },
   schedulePickerColumn: {
     flex: 1,
@@ -3008,7 +3009,7 @@ const createStyles = colors => StyleSheet.create({
     elevation: 8,
   },
   scheduleDoneText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -3059,16 +3060,16 @@ const createStyles = colors => StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#FCA5A5',
-    backgroundColor: '#FEF2F2',
+    borderColor: withAlpha(colors.error, 0.4),
+    backgroundColor: withAlpha(colors.error, 0.1),
   },
   attachmentHintRow: {
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FEF2F2',
+    backgroundColor: withAlpha(colors.error, 0.1),
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: withAlpha(colors.error, 0.4),
     borderRadius: 999,
     paddingVertical: 4,
     paddingHorizontal: 10,
@@ -3076,7 +3077,7 @@ const createStyles = colors => StyleSheet.create({
     gap: 6,
   },
   attachmentHintText: {
-    color: '#991B1B',
+    color: colors.error,
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
   },
@@ -3086,7 +3087,7 @@ const createStyles = colors => StyleSheet.create({
     borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FEE2E2',
+    backgroundColor: withAlpha(colors.error, 0.1),
   },
   attachInlineWrap: {
     width: '100%',
@@ -3123,10 +3124,10 @@ const createStyles = colors => StyleSheet.create({
     justifyContent: 'center',
   },
   attachInlineCameraBg: {
-    backgroundColor: '#E8F0FE',
+    backgroundColor: colors.primarySoft,
   },
   attachInlineGalleryBg: {
-    backgroundColor: '#EAF9F1',
+    backgroundColor: withAlpha(colors.success, 0.14),
   },
   attachInlineText: {
     fontSize: 12,
@@ -3138,16 +3139,16 @@ const createStyles = colors => StyleSheet.create({
   },
   singleActionButton: {},
   addText: {
-    color: '#16A34A',
+    color: colors.success,
   },
   withdrawText: {
-    color: '#EF4444',
+    color: colors.error,
   },
   transferText: {
-    color: '#1D4ED8',
+    color: colors.text.primary,
   },
   expenseText: {
-    color: '#10B981',
+    color: colors.success,
   },
 });
 

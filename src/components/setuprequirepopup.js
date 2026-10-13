@@ -133,7 +133,7 @@ const createStyles = colors => StyleSheet.create({
     borderColor: colors.primary,
   },
   checkboxTick: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 16,
@@ -152,7 +152,7 @@ const createStyles = colors => StyleSheet.create({
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: '#fff',
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
   },

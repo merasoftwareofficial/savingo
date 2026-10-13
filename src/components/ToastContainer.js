@@ -12,7 +12,7 @@ const ToastContainer = () => {
 
   return (
     <Modal transparent animationType="none" visible>
-      <View style={styles.container} pointerEvents="none">
+      <View style={styles.container} pointerEvents="box-none">
         {toasts.map(toast => (
           <Toast
             key={toast.id}

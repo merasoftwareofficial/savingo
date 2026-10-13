@@ -1,15 +1,9 @@
-import {Appearance} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {writeColorSchemePreference} from '../utils/darkModePreference';
 import {initializeCoreDatabases} from './dbLifecycleManager';
 import {
   DEFAULT_TAB_AUTO,
   DEFAULT_TAB_STORAGE_KEY,
 } from '../utils/defaultTabPreference';
-import {
-  DEFAULT_HEADER_TEXTURE_ID,
-  HEADER_TEXTURE_STORAGE_KEY,
-} from '../utils/headerTextureTheme';
 import {perfLog, perfNow} from '../utils/perfLogger';
 import {FRESH_INSTALL_DISMISSED_NOTICE_KEYS} from '../utils/featureNotices';
 
@@ -17,12 +11,10 @@ export const FIRST_RUN_ORCHESTRATOR_ENABLED = true;
 
 const FIRST_RUN_COMPLETED_KEY = 'app.firstRunCompleted';
 const FIRST_RUN_DEFERRED_COMPLETED_KEY = 'app.firstRunDeferredCompleted';
-const CHECKPOINT_THEME_DONE_KEY = 'init.theme.done';
 const CHECKPOINT_PREFS_DONE_KEY = 'init.prefs.done';
 const CHECKPOINT_FLAGS_DONE_KEY = 'init.flags.done';
 const CHECKPOINT_DB_DONE_KEY = 'init.db.done';
 const CHECKPOINT_CACHE_DONE_KEY = 'init.cache.done';
-const COLOR_SCHEME_KEY = 'app.colorScheme.v1';
 const STARTUP_CACHE_SUMMARY_KEY = 'dashboard.cache.summary.v1';
 const STARTUP_CACHE_PROFILE_KEY = 'user.cache.profile.v1';
 const STARTUP_CACHE_META_KEY = 'startup.cache.meta.v1';
@@ -55,38 +47,12 @@ const runStep = async (stepName, checkpointKey, handler) => {
   return {stepName, skipped: false};
 };
 
-const ensureThemeFrozenOnFirstRun = async () => {
-  const storedSchemeRaw = await AsyncStorage.getItem(COLOR_SCHEME_KEY);
-  const storedScheme = String(storedSchemeRaw || '').trim().toLowerCase();
-  if (storedScheme === 'light' || storedScheme === 'dark') {
-    return;
-  }
-  const systemScheme = String(Appearance.getColorScheme() || '').toLowerCase();
-  const frozenTheme = systemScheme === 'dark' ? 'dark' : 'light';
-  await writeColorSchemePreference(frozenTheme);
-};
-
 const ensureMinimalPrefsDefaults = async () => {
-  const pairs = await AsyncStorage.multiGet([
-    DEFAULT_TAB_STORAGE_KEY,
-    HEADER_TEXTURE_STORAGE_KEY,
-  ]);
-
-  const updates = [];
-  const pairMap = {};
-  pairs.forEach(([key, value]) => {
-    pairMap[key] = value;
-  });
-  const tabValue = String(pairMap[DEFAULT_TAB_STORAGE_KEY] || '').trim();
+  const tabValue = String(
+    (await AsyncStorage.getItem(DEFAULT_TAB_STORAGE_KEY)) || '',
+  ).trim();
   if (!tabValue) {
-    updates.push([DEFAULT_TAB_STORAGE_KEY, DEFAULT_TAB_AUTO]);
-  }
-  const headerTextureId = String(pairMap[HEADER_TEXTURE_STORAGE_KEY] || '').trim();
-  if (!headerTextureId) {
-    updates.push([HEADER_TEXTURE_STORAGE_KEY, DEFAULT_HEADER_TEXTURE_ID]);
-  }
-  if (updates.length > 0) {
-    await AsyncStorage.multiSet(updates);
+    await AsyncStorage.setItem(DEFAULT_TAB_STORAGE_KEY, DEFAULT_TAB_AUTO);
   }
 };
 
@@ -148,7 +114,6 @@ export const runFirstLaunchPhaseA = async () => {
   const orchestrationStartedAt = perfNow();
   perfLog('first-run', 'orchestrator-start');
   try {
-    await runStep('theme', CHECKPOINT_THEME_DONE_KEY, ensureThemeFrozenOnFirstRun);
     await runStep('prefs', CHECKPOINT_PREFS_DONE_KEY, ensureMinimalPrefsDefaults);
     await runStep('flags', CHECKPOINT_FLAGS_DONE_KEY, ensureFirstRunFlags);
     await AsyncStorage.setItem(FIRST_RUN_COMPLETED_KEY, 'true');

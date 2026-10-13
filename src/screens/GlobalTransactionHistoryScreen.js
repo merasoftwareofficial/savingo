@@ -391,10 +391,10 @@ const createStyles = colors =>
       textAlign: 'right',
     },
     amountAdded: {
-      color: '#16A34A',
+      color: colors.success,
     },
     amountWithdraw: {
-      color: '#DC2626',
+      color: colors.error,
     },
     amountBlock: {
       alignItems: 'flex-end',

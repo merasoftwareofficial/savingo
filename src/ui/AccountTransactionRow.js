@@ -6,7 +6,6 @@ import TapEffect from '../components/ui/TapEffect';
 const AccountTransactionRow = ({
   item,
   styles,
-  isDark,
   themeColors,
   formatCurrency,
   formatDateLabel,
@@ -28,30 +27,14 @@ const AccountTransactionRow = ({
   const editHistory = editCount ? parseEditHistory(txn) : [];
   const isTransfer = isTransferTransaction(txn);
   const isOffSessionEntry = Boolean(String(txn?.off_session_id || '').trim());
-  const ecoLeafColor = isOffSessionEntry
-    ? isDark
-      ? '#D1D5DB'
-      : '#6B7280'
-    : '#16A34A';
+  const ecoLeafColor = isOffSessionEntry ? themeColors.text.light : themeColors.success;
   const receiptUri = txn.image_uri ? normalizeImageUri(txn.image_uri) : '';
 
   return (
     <View>
       {showDate ? (
-        <View
-          style={[
-            styles.datePill,
-            isDark && {
-              backgroundColor: themeColors.surface || themeColors.card,
-              borderWidth: 1,
-              borderColor: themeColors.border,
-            },
-          ]}>
-          <Text
-            style={[
-              styles.datePillText,
-              isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
-            ]}>
+        <View style={styles.datePill}>
+          <Text style={styles.datePillText}>
             {formatDateLabel(txn.transaction_date)}
           </Text>
         </View>
@@ -65,16 +48,7 @@ const AccountTransactionRow = ({
             styles.chatBubble,
             Number(txn.amount) > 0 && styles.chatBubbleCredit,
             Number(txn.amount) < 0 && styles.chatBubbleDebit,
-            isDark && {
-              backgroundColor: themeColors.card,
-              borderColor: themeColors.border,
-            },
             isDeleted && deletedUiStyles.bubble,
-            isDeleted &&
-              isDark && {
-                backgroundColor: themeColors.card,
-                borderColor: themeColors.border,
-              },
           ]}>
           <View style={styles.chatHeader}>
             <View
@@ -83,26 +57,18 @@ const AccountTransactionRow = ({
                 Number(txn.amount) < 0 && styles.chatIconDebit,
                 isTransfer && styles.chatIconTransfer,
                 isDeleted && deletedUiStyles.iconContainer,
-                isDeleted &&
-                  isDark && {
-                    backgroundColor: themeColors.surface || themeColors.card,
-                    borderWidth: 1,
-                    borderColor: themeColors.border,
-                  },
               ]}>
               <Icon
                 name={Number(txn.amount) < 0 ? 'arrow-down' : 'arrow-up'}
                 size={16}
                 color={
                   isDeleted
-                    ? isDark
-                      ? themeColors.text?.secondary || '#9CA3AF'
-                      : '#6B7280'
+                    ? themeColors.text.secondary
                     : isTransfer
-                    ? '#3B82F6'
+                    ? themeColors.text.primary
                     : Number(txn.amount) < 0
-                    ? '#EF4444'
-                    : '#10B981'
+                    ? themeColors.error
+                    : themeColors.success
                 }
               />
             </View>
@@ -128,31 +94,15 @@ const AccountTransactionRow = ({
               />
               {renderDeletedBadge(
                 isDeleted,
-                [
-                  deletedUiStyles.badge,
-                  isDark && {
-                    backgroundColor: themeColors.surface || themeColors.card,
-                    borderWidth: 1,
-                    borderColor: themeColors.border,
-                  },
-                ],
-                [
-                  deletedUiStyles.badgeText,
-                  isDark && {
-                    color: themeColors.text?.secondary || '#9CA3AF',
-                  },
-                ],
+                deletedUiStyles.badge,
+                deletedUiStyles.badgeText,
               )}
             </View>
           </View>
           {isDeleted ? (
             renderDeletedNote(isDeleted)
           ) : txn.remark ? (
-            <Text
-              style={[
-                styles.chatRemark,
-                isDark && {color: themeColors.text?.primary || '#F3F4F6'},
-              ]}>
+            <Text style={styles.chatRemark}>
               {txn.remark}
             </Text>
           ) : null}
@@ -165,29 +115,17 @@ const AccountTransactionRow = ({
           ) : null}
           <View
             style={[styles.chatMeta, Number(txn.amount) < 0 && styles.chatMetaDebit]}>
-            <Text
-              style={[
-                styles.chatBalance,
-                isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
-              ]}>
+            <Text style={styles.chatBalance}>
               {formatCurrency(balanceAfter)}
             </Text>
             <View style={styles.chatMetaRight}>
-              <Text
-                style={[
-                  styles.chatTime,
-                  isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
-                ]}>
+              <Text style={styles.chatTime}>
                 {formatTimeLabel(txn.transaction_date)}
               </Text>
             </View>
           </View>
           {editHistory.length > 1 ? (
-            <Text
-              style={[
-                styles.editHistoryText,
-                isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
-              ]}>
+            <Text style={styles.editHistoryText}>
               {`Edited: ${editHistory.map(formatEditHistoryValue).join(' -> ')}`}
             </Text>
           ) : null}

@@ -135,7 +135,7 @@ const LedgerMessageBubble = ({messageId, timestamp, text, deliveryStatusValue,
               ]}>
               <Text style={styles.chatMessageText}>{text}</Text>
               {isSent && status.failed ? (
-                <Text style={[styles.chatTime, {color: '#EF4444'}]}>Failed · tap to retry</Text>
+                <Text style={[styles.chatTime, {color: colors.error}]}>Failed · tap to retry</Text>
               ) : null}
               <View style={styles.chatMetaRow}>
                 <Text style={styles.chatTime}>

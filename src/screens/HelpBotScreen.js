@@ -173,7 +173,7 @@ const HelpBotScreen = ({navigation}) => {
     },
     userText: {
       fontSize: fontSize.medium,
-      color: colors.white,
+      color: colors.onPrimary,
       lineHeight: 20,
     },
     botText: {
@@ -273,7 +273,7 @@ const HelpBotScreen = ({navigation}) => {
       color: colors.text.secondary,
     },
     langTextActive: {
-      color: colors.white,
+      color: colors.onPrimary,
     },
     quickSection: {
       marginTop: spacing.md,
@@ -480,7 +480,7 @@ const HelpBotScreen = ({navigation}) => {
           style={[styles.sendBtn, (!inputText.trim() || isTyping) && styles.sendBtnDisabled]}
           onPress={handleSend}
           disabled={!inputText.trim() || isTyping}>
-          <Icon name="send" size={18} color={colors.white} />
+          <Icon name="send" size={18} color={colors.onPrimary} />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

@@ -262,8 +262,6 @@ const UploadAccountSheetWizard = ({visible, onClose}) => {
         <ToggleSwitch
           value={relaxedMode}
           onValueChange={setRelaxedMode}
-          trackColor={{false: colors.border, true: '#86EFAC'}}
-          thumbColor={relaxedMode ? '#16A34A' : colors.surface}
         />
       </View>
 
@@ -273,9 +271,9 @@ const UploadAccountSheetWizard = ({visible, onClose}) => {
         disabled={analyzing}
         activeOpacity={0.85}>
         {analyzing ? (
-          <ActivityIndicator color={colors.white} />
+          <ActivityIndicator color={colors.onPrimary} />
         ) : (
-          <Icon name="document-attach-outline" size={18} color={colors.white} />
+          <Icon name="document-attach-outline" size={18} color={colors.onPrimary} />
         )}
         <Text style={styles.primaryBtnText}>
           {analyzing ? 'Reading Sheet...' : 'Choose Excel/CSV Sheet'}
@@ -382,9 +380,9 @@ const UploadAccountSheetWizard = ({visible, onClose}) => {
             disabled={!canCreateSafe}
             activeOpacity={0.85}>
             {importing ? (
-              <ActivityIndicator color={colors.white} />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
-              <Icon name="checkmark-circle-outline" size={18} color={colors.white} />
+              <Icon name="checkmark-circle-outline" size={18} color={colors.onPrimary} />
             )}
             <Text style={styles.primaryBtnText}>
               {importing ? 'Creating Entries...' : 'Create Valid Entries'}
@@ -450,7 +448,7 @@ const UploadAccountSheetWizard = ({visible, onClose}) => {
           <Text style={styles.mutedText}>Skipped by ECO: {ecoSkippedCount}</Text>
         </View>
         <TouchableOpacity style={styles.primaryBtn} onPress={onClose} activeOpacity={0.85}>
-          <Icon name="checkmark-outline" size={18} color={colors.white} />
+          <Icon name="checkmark-outline" size={18} color={colors.onPrimary} />
           <Text style={styles.primaryBtnText}>Close</Text>
         </TouchableOpacity>
       </View>
@@ -665,7 +663,7 @@ const createStyles = colors =>
       gap: 8,
     },
     primaryBtnText: {
-      color: colors.white,
+      color: colors.onPrimary,
       fontSize: fontSize.regular,
       fontWeight: fontWeight.semibold,
     },

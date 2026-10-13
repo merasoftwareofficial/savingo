@@ -8,7 +8,10 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, radius, typography} from '../utils/theme';
+import Card from '../components/ui/Card';
+import ListRow from '../components/ui/ListRow';
+import SectionHeader from '../components/ui/SectionHeader';
 import {useTheme} from '../context/ThemeContext';
 import {useAppAlert} from '../context/AppAlertContext';
 import {queueBackupFromStorage} from '../utils/backupQueue';
@@ -31,12 +34,6 @@ const MONTH_START_DAY_KEY = 'monthStartDay';
 const DASHBOARD_SHOW_SAVINGS_BALANCE_KEY = 'dashboard_show_savings_balance_in_net';
 const DASHBOARD_HIDE_SAVING_ACCOUNTS_KEY = 'dashboard_hide_saving_accounts';
 const MONTH_START_DAY_OPTIONS = Array.from({length: 28}, (_, index) => index + 1);
-
-const COMMON_SETTINGS = [
-  {id: 'language', title: 'Language', icon: 'globe-outline'},
-  {id: 'notifications', title: 'Notifications', icon: 'notifications-outline'},
-  {id: 'privacy', title: 'Privacy', icon: 'lock-closed-outline'},
-];
 
 const COLOR_SCHEME_OPTIONS = [
   {label: 'Light', value: 'light', icon: 'sunny-outline'},
@@ -87,14 +84,6 @@ const SettingsScreen = ({navigation}) => {
     loadingLabel: 'Processing...',
   });
   const strictEcoCaptchaResolverRef = React.useRef(null);
-  const settingsToggleTrackColor = React.useMemo(
-    () => ({false: '#D1D5DB', true: '#86EFAC'}),
-    [],
-  );
-  const settingsToggleThumbColor = React.useCallback(
-    enabled => (enabled ? '#16A34A' : '#F9FAFB'),
-    [],
-  );
 
   React.useEffect(() => {
     const loadSettings = async () => {
@@ -305,159 +294,124 @@ const SettingsScreen = ({navigation}) => {
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}>
-        {/* <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Common Settings</Text>
-          {COMMON_SETTINGS.map(item => (
-            <TouchableOpacity
-              key={item.id}
-              style={styles.settingRow}
-              onPress={() => themedAlert('Coming Soon', `${item.title} setting`)}>
-              <View style={styles.settingLeft}>
-                <Icon name={item.icon} size={22} color={colors.text.primary} />
-                <Text style={styles.settingText}>{item.title}</Text>
-              </View>
-              <Icon name="chevron-forward" size={20} color={colors.text.light} />
-            </TouchableOpacity>
-          ))}
-        </View> */}
+        <SectionHeader title="System" />
+        <Card padded={false} style={styles.group}>
+          <ListRow
+            icon="albums-outline"
+            title="Default tab"
+            value={getDefaultTabLabel(defaultTab)}
+            chevron
+            divider
+            onPress={() => setDefaultTabModalVisible(true)}
+          />
+          <ListRow
+            icon="leaf-outline"
+            title="Strict Eco system"
+            subtitle="Save battery and data in the background"
+            trailing={
+              <ToggleSwitch value={strictEcoEnabled} onValueChange={handleStrictEcoToggle} />
+            }
+          />
+        </Card>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>System</Text>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => setDefaultTabModalVisible(true)}>
-            <View style={styles.settingLeft}>
-              <Icon name="albums-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Default Tab</Text>
-            </View>
-            <View style={styles.settingRight}>
-              <Text style={styles.settingValue}>{getDefaultTabLabel(defaultTab)}</Text>
-              <Icon name="chevron-forward" size={20} color={colors.text.light} />
-            </View>
-          </TouchableOpacity>
-          <View style={styles.settingRow}>
-            <View style={styles.settingLeft}>
-              <Icon name="leaf-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Strict Eco system</Text>
-            </View>
-            <ToggleSwitch
-              value={strictEcoEnabled}
-              onValueChange={handleStrictEcoToggle}
-              trackColor={settingsToggleTrackColor}
-              thumbColor={settingsToggleThumbColor(strictEcoEnabled)}
-            />
-          </View>
-        </View>
+        <SectionHeader title="Dashboard" />
+        <Card padded={false} style={styles.group}>
+          <ListRow
+            icon="calendar-outline"
+            title="Quick period reset day"
+            value={`Day ${monthStartDay}`}
+            chevron
+            divider
+            onPress={() => setMonthStartModalVisible(true)}
+          />
+          <ListRow
+            icon="wallet-outline"
+            title="Show savings balance"
+            subtitle="Include savings in the dashboard net balance"
+            divider
+            trailing={
+              <ToggleSwitch
+                value={showSavingsBalanceInDashboard}
+                onValueChange={handleToggleShowSavingsBalance}
+              />
+            }
+          />
+          <ListRow
+            icon="eye-off-outline"
+            title="Hide saving accounts"
+            trailing={
+              <ToggleSwitch
+                value={hideSavingAccountOnDashboard}
+                onValueChange={handleToggleHideSavingAccount}
+              />
+            }
+          />
+        </Card>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Dashboard</Text>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => setMonthStartModalVisible(true)}>
-            <View style={styles.settingLeft}>
-              <Icon name="calendar-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Quick Period</Text>
-            </View>
-            <View style={styles.settingRight}>
-              <Text style={styles.settingValue}>Day {monthStartDay}</Text>
-              <Icon name="chevron-forward" size={20} color={colors.text.light} />
-            </View>
-          </TouchableOpacity>
-          <View style={styles.settingRow}>
-            <View style={styles.settingLeft}>
-              <Icon name="wallet-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Show savings balance in dashboard</Text>
-            </View>
-            <ToggleSwitch
-              value={showSavingsBalanceInDashboard}
-              onValueChange={handleToggleShowSavingsBalance}
-              trackColor={settingsToggleTrackColor}
-              thumbColor={settingsToggleThumbColor(showSavingsBalanceInDashboard)}
-            />
-          </View>
-          <View style={styles.settingRow}>
-            <View style={styles.settingLeft}>
-              <Icon name="eye-off-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Hide Saving Account</Text>
-            </View>
-            <ToggleSwitch
-              value={hideSavingAccountOnDashboard}
-              onValueChange={handleToggleHideSavingAccount}
-              trackColor={settingsToggleTrackColor}
-              thumbColor={settingsToggleThumbColor(hideSavingAccountOnDashboard)}
-            />
-          </View>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={openResetDashboardFlow}>
-            <View style={styles.settingLeft}>
-              <Icon name="warning-outline" size={22} color="#B91C1C" />
-              <Text style={styles.settingTextDanger}>Reset All Accounts Data</Text>
-            </View>
-            <Icon name="chevron-forward" size={20} color="#B91C1C" />
-          </TouchableOpacity>
-        </View>
+        <SectionHeader title="Appearance" />
+        <Card padded={false} style={styles.group}>
+          <ListRow
+            icon="contrast-outline"
+            title="Theme"
+            value={
+              COLOR_SCHEME_OPTIONS.find(o => o.value === themePreference)?.label ||
+              'System (Auto)'
+            }
+            chevron
+            onPress={() => setDarkModeModalVisible(true)}
+          />
+        </Card>
 
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Appearance</Text>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => navigation.navigate('ThemeSettings')}>
-            <View style={styles.settingLeft}>
-              <Icon name="images-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Theme</Text>
-            </View>
-            <Icon name="chevron-forward" size={20} color={colors.text.light} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.settingRow}
-            onPress={() => setDarkModeModalVisible(true)}>
-            <View style={styles.settingLeft}>
-              <Icon name="moon-outline" size={22} color={colors.text.primary} />
-              <Text style={styles.settingText}>Dark Mode</Text>
-            </View>
-            <View style={styles.settingRight}>
-              <Text style={styles.settingValue}>
-                {COLOR_SCHEME_OPTIONS.find(o => o.value === themePreference)?.label || 'System (Auto)'}
-              </Text>
-              <Icon name="chevron-forward" size={20} color={colors.text.light} />
-            </View>
-          </TouchableOpacity>
-        </View>
+        <SectionHeader title="Danger zone" />
+        <Card padded={false} style={styles.group}>
+          <ListRow
+            icon="warning-outline"
+            title="Reset all accounts data"
+            subtitle="Ledger and login data stay safe"
+            danger
+            chevron
+            onPress={openResetDashboardFlow}
+          />
+        </Card>
       </ScrollView>
 
       <BottomSheet
         visible={darkModeModalVisible}
-        onClose={() => setDarkModeModalVisible(false)}>
-        <View style={styles.sheetHeaderCentered}>
-          <Text style={styles.sheetTitleCentered}>Dark Mode</Text>
+        onClose={() => setDarkModeModalVisible(false)}
+        title="Theme">
+        <View style={styles.sheetList}>
+          {COLOR_SCHEME_OPTIONS.map((option, index) => {
+            const isActive = themePreference === option.value;
+            return (
+              <ListRow
+                key={option.value}
+                icon={option.icon}
+                iconColor={isActive ? colors.onPrimary : colors.text.secondary}
+                iconBackground={isActive ? colors.primary : colors.card}
+                title={option.label}
+                divider={index < COLOR_SCHEME_OPTIONS.length - 1}
+                onPress={() => {
+                  setThemePreference(option.value);
+                  setDarkModeModalVisible(false);
+                }}
+                trailing={
+                  <Icon
+                    name={isActive ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={22}
+                    color={isActive ? colors.primary : colors.text.light}
+                  />
+                }
+              />
+            );
+          })}
         </View>
-        {COLOR_SCHEME_OPTIONS.map(option => (
-          <TouchableOpacity
-            key={option.value}
-            style={styles.sheetOptionRow}
-            onPress={() => {
-              setThemePreference(option.value);
-              setDarkModeModalVisible(false);
-            }}>
-            <View style={styles.settingLeft}>
-              <Icon name={option.icon} size={20} color={colors.text.primary} />
-              <Text style={styles.sheetOptionText}>{option.label}</Text>
-            </View>
-            {themePreference === option.value && (
-              <Icon name="checkmark" size={20} color={colors.primary} />
-            )}
-          </TouchableOpacity>
-        ))}
-        <View style={styles.sheetBottomPad} />
       </BottomSheet>
 
       <BottomSheet
         visible={monthStartModalVisible}
-        onClose={() => setMonthStartModalVisible(false)}>
-        <View style={styles.sheetHeaderCentered}>
-          <Text style={styles.sheetTitleCentered}>Quick Period Reset Day</Text>
-        </View>
+        onClose={() => setMonthStartModalVisible(false)}
+        title="Quick period reset day"
+        subtitle="Monthly periods start on this day">
         <View style={styles.dayGridContainer}>
           <View style={styles.dayGrid}>
           {MONTH_START_DAY_OPTIONS.map(day => {
@@ -519,122 +473,26 @@ const createStyles = colors => StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.headerBg,
-    borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
-    elevation: 2,
-  },
-  backButton: {
-    padding: 6,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: fontSize.large,
-    fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
-  },
-  headerSpacer: {
-    width: 34,
-  },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.lg,
+    padding: spacing.md,
+    paddingBottom: spacing.xl,
   },
-  section: {
-    backgroundColor: colors.card,
-    marginTop: spacing.sm,
-    marginHorizontal: spacing.md,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
+  group: {
     overflow: 'hidden',
+    marginBottom: spacing.lg,
   },
-  sectionTitle: {
-    fontSize: fontSize.small,
-    fontWeight: fontWeight.semibold,
-    color: colors.text.secondary,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.card,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  settingLeft: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
-    flex: 1,
-    paddingRight: spacing.sm,
-  },
-  settingText: {
-    fontSize: fontSize.regular,
-    color: colors.text.primary,
-    flex: 1,
-    flexWrap: 'wrap',
-  },
-  settingTextDanger: {
-    fontSize: fontSize.regular,
-    color: '#B91C1C',
-    fontWeight: fontWeight.semibold,
-  },
-  settingRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-  },
-  settingValue: {
-    fontSize: fontSize.regular,
-    fontWeight: fontWeight.semibold,
-    color: colors.text.secondary,
-  },
-  sheetHeaderCentered: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    alignItems: 'center',
-  },
-  sheetTitleCentered: {
-    fontSize: fontSize.large,
-    fontWeight: fontWeight.semibold,
-    color: colors.text.primary,
-  },
-  sheetOptionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md + 2,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  sheetOptionText: {
-    fontSize: fontSize.regular,
-    color: colors.text.primary,
-  },
-  sheetBottomPad: {
-    height: spacing.md,
+  sheetList: {
+    marginHorizontal: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceMuted,
+    overflow: 'hidden',
   },
   dayGridContainer: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingBottom: spacing.sm,
   },
   dayGrid: {
     flexDirection: 'row',
@@ -646,24 +504,21 @@ const createStyles = colors => StyleSheet.create({
   },
   dayButton: {
     aspectRatio: 1,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.card,
+    backgroundColor: colors.surfaceMuted,
   },
   dayButtonActive: {
-    backgroundColor: colors.surfaceMuted,
-    borderColor: colors.primary,
+    backgroundColor: colors.primary,
   },
   dayText: {
-    fontSize: fontSize.medium,
+    ...typography.label,
     color: colors.text.primary,
   },
   dayTextActive: {
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
+    fontWeight: '700',
+    color: colors.onPrimary,
   },
 });
 

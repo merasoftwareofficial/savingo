@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {FAQ_DATA} from '../utils/faqData';
 import PageHeader from '../components/ui/PageHeader';
 import {useTheme} from '../context/ThemeContext';
@@ -72,7 +72,7 @@ const createStyles = colors => StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
   },
   backButton: {
     padding: spacing.xs,
@@ -82,7 +82,7 @@ const createStyles = colors => StyleSheet.create({
     textAlign: 'center',
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
   },
   headerSpacer: {
     width: 32,

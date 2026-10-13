@@ -50,8 +50,6 @@ const NotificationToggle = ({
         <ToggleSwitch
           value={enabled}
           onValueChange={onToggle}
-          trackColor={{false: colors.border, true: '#81C784'}}
-          thumbColor={enabled ? colors.primary : colors.text.secondary}
         />
       </View>
     </TouchableOpacity>

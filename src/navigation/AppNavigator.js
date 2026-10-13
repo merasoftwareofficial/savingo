@@ -28,7 +28,6 @@ import ProfileSettings from '../screens/ProfileSettings';
 import FAQsScreen from '../screens/FAQsScreen';
 import CategoryQuestionsScreen from '../screens/CategoryQuestionsScreen';
 import QuestionAnswerScreen from '../screens/QuestionAnswerScreen';
-import ThemeSettingsScreen from '../screens/ThemeSettingsScreen';
 import MoreScreen from '../screens/MoreScreen';
 import ContactProfileScreen from '../screens/contactprofilescreen';
 import HelpBotScreen from '../screens/HelpBotScreen';
@@ -169,7 +168,6 @@ const AppNavigator = ({onReady, onRouteChange}) => {
         <Stack.Screen name="Backup" component={BackupScreen} />
         <Stack.Screen name="CurrencySetup" component={CurrencySetupScreen} />
         <Stack.Screen name="ProfileSetup" component={ProfileSetupScreen} />
-        <Stack.Screen name="ThemeSettings" component={ThemeSettingsScreen} />
         <Stack.Screen name="FAQs" component={FAQsScreen} />
         <Stack.Screen name="CategoryQuestions" component={CategoryQuestionsScreen} />
         <Stack.Screen name="QuestionAnswer" component={QuestionAnswerScreen} />

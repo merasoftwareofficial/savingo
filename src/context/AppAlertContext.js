@@ -49,6 +49,7 @@ export const AppAlertProvider = ({children}) => {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         title: String(config?.title || ''),
         message: String(config?.message || ''),
+        tone: config?.tone,
         actions: normalizeActions(config?.actions),
         resolve,
       };
@@ -98,6 +99,7 @@ export const AppAlertProvider = ({children}) => {
     message =>
       showAlert({
         title: 'Error',
+        tone: 'error',
         message,
         actions: [{text: 'OK', style: 'destructive'}],
       }),
@@ -108,6 +110,7 @@ export const AppAlertProvider = ({children}) => {
     message =>
       showAlert({
         title: 'Success',
+        tone: 'success',
         message,
         actions: [{text: 'OK'}],
       }),
@@ -147,6 +150,7 @@ export const AppAlertProvider = ({children}) => {
         visible={Boolean(currentAlert)}
         title={currentAlert?.title}
         message={currentAlert?.message}
+        tone={currentAlert?.tone}
         actions={currentAlert?.actions || []}
         processing={processing}
         processingIndex={processingIndex}

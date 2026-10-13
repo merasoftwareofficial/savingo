@@ -12,7 +12,6 @@ import BottomSheet from './BottomSheet';
 import {spacing, fontWeight} from '../utils/theme';
 import {getTransactionsByAccount} from '../services/transactionsDatabase';
 import {useTheme} from '../context/ThemeContext';
-import {useAdaptiveAccent} from '../hooks/useAdaptiveThemeAccent';
 
 const DAYS_OF_WEEK = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
 
@@ -59,12 +58,8 @@ const DashboardCalendarSheet = ({
   accounts,
   customStartDate,
   customEndDate,
-  themeColor = '#16A34A',
-  accentPalette,
 }) => {
   const {colors} = useTheme();
-  const fallbackAccent = useAdaptiveAccent(themeColor);
-  const accent = accentPalette || fallbackAccent;
   const now = React.useMemo(() => new Date(), []);
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [viewYear, setViewYear] = useState(now.getFullYear());
@@ -225,12 +220,12 @@ const DashboardCalendarSheet = ({
               isToday && !isSelected && styles.dayCellBtnToday,
               inRange &&
                 !isSelected && {
-                  backgroundColor: accent.accentPrimarySoft,
-                  borderColor: accent.ring,
+                  backgroundColor: colors.primarySoft,
+                  borderColor: colors.primaryRing,
                 },
               isSelected && {
-                backgroundColor: accent.accentPrimary,
-                borderColor: accent.ring,
+                backgroundColor: colors.primary,
+                borderColor: colors.primary,
               },
             ]}>
             <Text
@@ -242,13 +237,19 @@ const DashboardCalendarSheet = ({
               {d}
             </Text>
             {amt && amt.earning > 0 && (
-              <Text style={styles.amtEarning}>+{Math.round(amt.earning)}</Text>
+              <Text
+                style={[
+                  styles.amtEarning,
+                  isSelected && styles.amtSelected,
+                ]}>
+                +{Math.round(amt.earning)}
+              </Text>
             )}
             {amt && amt.expense < 0 && (
               <Text
                 style={[
                   styles.amtExpense,
-                  isSelected && styles.amtExpenseSelected,
+                  isSelected && styles.amtSelected,
                 ]}>
                 {Math.round(amt.expense)}
               </Text>
@@ -263,15 +264,8 @@ const DashboardCalendarSheet = ({
   const canApply = !!(tempStart && tempEnd);
 
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
+    <BottomSheet visible={visible} onClose={onClose} title="Select date range">
       <View style={styles.content}>
-      {/* Header */}
-      <View style={styles.sheetHeader}>
-        <Text style={styles.sheetTitle}>Select Date Range</Text>
-        <TouchableOpacity onPress={onClose} style={styles.sheetCloseBtn}>
-          <Icon name="close" size={20} color={colors.text.secondary} />
-        </TouchableOpacity>
-      </View>
 
       {/* Month nav */}
       <View style={styles.monthNav}>
@@ -339,12 +333,11 @@ const DashboardCalendarSheet = ({
         <TouchableOpacity
           style={[
             styles.footerBtnApply,
-            {backgroundColor: accent.accentPrimary},
             !canApply && styles.footerBtnDisabled,
           ]}
           onPress={handleApply}
           disabled={!canApply}>
-          <Icon name="checkmark" size={20} color="#FFFFFF" />
+          <Icon name="checkmark" size={20} color={colors.onPrimary} />
         </TouchableOpacity>
       </View>
       </View>
@@ -356,21 +349,6 @@ const createStyles = colors => StyleSheet.create({
   content: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.xs,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-    marginBottom: 4,
-  },
-  sheetTitle: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
-    color: colors.text.primary,
-  },
-  sheetCloseBtn: {
-    padding: 4,
   },
 
   // Hint
@@ -389,7 +367,7 @@ const createStyles = colors => StyleSheet.create({
     color: colors.text.secondary,
     flex: 1,
   },
-  hintGreen: {color: '#16A34A'},
+  hintGreen: {color: colors.success},
   hintRed: {color: colors.error},
 
   rangeBlock: {
@@ -485,12 +463,12 @@ const createStyles = colors => StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   dayTextSelected: {
-    color: '#FFFFFF',
+    color: colors.onPrimary,
     fontWeight: fontWeight.bold,
   },
   amtEarning: {
     fontSize: 8,
-    color: '#16A34A',
+    color: colors.success,
     fontWeight: fontWeight.semibold,
     marginTop: 1,
     textAlign: 'center',
@@ -501,8 +479,9 @@ const createStyles = colors => StyleSheet.create({
     fontWeight: fontWeight.semibold,
     textAlign: 'center',
   },
-  amtExpenseSelected: {
-    color: 'rgba(255,255,255,0.85)',
+  amtSelected: {
+    color: colors.onPrimary,
+    opacity: 0.85,
   },
 
   // Footer
@@ -529,7 +508,7 @@ const createStyles = colors => StyleSheet.create({
     flex: 1,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#16A34A',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },

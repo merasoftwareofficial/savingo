@@ -31,20 +31,19 @@ import RNBlobUtil from 'react-native-blob-util';
 import ImageViewer from 'react-native-image-zoom-viewer';
 import {useFocusEffect} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {colors, spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
+import {withAlpha} from '../utils/color';
+import AccountDetailHeader from '../ui/AccountDetailHeader';
 import BsCashCoin from '../components/icons/BsCashCoin';
 import BottomSheet from '../components/BottomSheet';
 import AmountEntryView from '../components/AmountEntryView';
 import AmountActionButton from '../components/AmountActionButton';
 import CTAButton from '../components/ui/ctabuttons';
-import DashboardPeriodFilter from '../components/DashboardPeriodFilter';
 import RenameAccountModal from '../components/RenameAccountModal';
 import EditRemarkModalSheet from '../components/EditRemarkModalSheet';
 import EditAmountModal from '../components/ui/editamount';
 import DropdownPopup from '../components/ui/popups/DropdownPopup';
 import ToggleSwitch from '../components/ui/ToggleSwitch';
-import TexturedSurface from '../components/TexturedSurface';
-import ManualBackupButton from '../components/ManualBackupButton';
 import {buildExpensesAccountMenuActions} from '../components/actions/accountMenuActions';
 import {useUniversalToast} from '../hooks/useToast';
 import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
@@ -63,11 +62,9 @@ import {
   saveAccountsPeriodState,
 } from '../services/accountsPeriodStateStorage';
 import {
-  deletedUiStyles,
   getDeletedTapEffectProps,
   withDeletedStyle,
-  renderDeletedBadge,
-  renderDeletedNote,
+  useDeletedUi,
 } from '../components/ui/deleteui';
 import {
   initTransactionsDatabase,
@@ -177,69 +174,6 @@ const METRIC_ICON_SIZE = 28;
 const METRIC_LABEL_GAP = 6;
 const METRIC_LABEL_OFFSET = METRIC_ICON_SIZE + METRIC_LABEL_GAP;
 
-const withAlpha = (hex, alpha) => {
-  if (!hex || typeof hex !== 'string') {
-    return hex;
-  }
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) {
-    return hex;
-  }
-  const red = parseInt(normalized.slice(0, 2), 16);
-  const green = parseInt(normalized.slice(2, 4), 16);
-  const blue = parseInt(normalized.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-};
-
-const tintWithWhite = (hex, whiteRatio = 0.94) => {
-  if (!hex || typeof hex !== 'string') {
-    return hex;
-  }
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) {
-    return hex;
-  }
-  const ratio = Math.min(1, Math.max(0, whiteRatio));
-  const red = parseInt(normalized.slice(0, 2), 16);
-  const green = parseInt(normalized.slice(2, 4), 16);
-  const blue = parseInt(normalized.slice(4, 6), 16);
-  const mix = channel => Math.round(255 * ratio + channel * (1 - ratio));
-  const toHex = value => value.toString(16).padStart(2, '0');
-  return `#${toHex(mix(red))}${toHex(mix(green))}${toHex(mix(blue))}`;
-};
-
-const darkenHex = (hex, ratio = 0.26) => {
-  if (!hex || typeof hex !== 'string') {
-    return hex;
-  }
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) {
-    return hex;
-  }
-  const clampRatio = Math.min(1, Math.max(0, ratio));
-  const red = parseInt(normalized.slice(0, 2), 16);
-  const green = parseInt(normalized.slice(2, 4), 16);
-  const blue = parseInt(normalized.slice(4, 6), 16);
-  const darken = channel => Math.round(channel * (1 - clampRatio));
-  const toHex = value => value.toString(16).padStart(2, '0');
-  return `#${toHex(darken(red))}${toHex(darken(green))}${toHex(darken(blue))}`;
-};
-
-const getReadableHeaderColor = hex => {
-  if (!hex || typeof hex !== 'string') {
-    return headerTexture.icon;
-  }
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) {
-    return headerTexture.icon;
-  }
-  const red = parseInt(normalized.slice(0, 2), 16);
-  const green = parseInt(normalized.slice(2, 4), 16);
-  const blue = parseInt(normalized.slice(4, 6), 16);
-  const luminance = (0.299 * red + 0.587 * green + 0.114 * blue) / 255;
-  return luminance > 0.68 ? '#0F172A' : '#F8FAFC';
-};
-
 const normalizeImageUri = uri => {
   if (!uri) {
     return '';
@@ -294,7 +228,10 @@ const renderAccountHeaderIcon = (iconName, size, color) => {
 
 const ExpensesAccountDetailScreen = ({route, navigation}) => {
   const insets = useSafeAreaInsets();
-  const {isDark, colors: themeColors} = useTheme();
+  const {isDark, colors} = useTheme();
+  const {deletedUiStyles, renderDeletedBadge, renderDeletedNote} = useDeletedUi();
+  const themeColors = colors;
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const popupSurfaceColor = themeColors.modal || themeColors.card;
   const popupBorderColor = themeColors.border;
   const popupOverlayColor = themeColors.overlay || 'rgba(0,0,0,0.55)';
@@ -2472,14 +2409,12 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
             <Text
               style={[
                 styles.transferLogText,
-                isDark && {color: themeColors.text?.primary || '#F3F4F6'},
               ]}>
               {formatTransferLogRemark(latestEntry)}
             </Text>
             <Text
               style={[
                 styles.transferLogMeta,
-                isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
               ]}>
               {`${formatDateLabel(latestEntry.transaction_date)} ${formatTimeLabel(
                 latestEntry.transaction_date
@@ -2489,7 +2424,7 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
           <Icon
             name={transferLogExpanded ? 'chevron-up' : 'chevron-down'}
             size={18}
-            color={isDark ? themeColors.text?.secondary || '#9CA3AF' : '#334155'}
+            color={colors.text.secondary}
           />
         </TouchableOpacity>
 
@@ -2524,14 +2459,12 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                   <Text
                     style={[
                       styles.transferLogText,
-                      isDark && {color: themeColors.text?.primary || '#F3F4F6'},
                     ]}>
                     {formatTransferLogRemark(entry)}
                   </Text>
                   <Text
                     style={[
                       styles.transferLogMeta,
-                      isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
                     ]}>
                     {`${formatDateLabel(entry.transaction_date)} ${formatTimeLabel(
                       entry.transaction_date
@@ -2565,12 +2498,11 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
           <Icon
             name="receipt-outline"
             size={48}
-            color={isDark ? themeColors.text?.light || '#9CA3AF' : '#D1D5DB'}
+            color={colors.text.light}
           />
           <Text
             style={[
               styles.emptyText,
-              isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
             ]}>
             No transactions yet
           </Text>
@@ -2646,7 +2578,6 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                   <Text
                     style={[
                       styles.datePillText,
-                      isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
                     ]}>
                     {formatDateLabel(txn.transaction_date)}
                   </Text>
@@ -2752,7 +2683,6 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                     <Text
                       style={[
                         styles.chatRemark,
-                        isDark && {color: themeColors.text?.primary || '#F3F4F6'},
                       ]}>
                       {txn.remark}
                     </Text>
@@ -2768,7 +2698,6 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                     <Text
                       style={[
                         styles.chatBalance,
-                        isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
                       ]}>
                       {formatCurrency(balanceAfter)}
                     </Text>
@@ -2776,7 +2705,6 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                       <Text
                         style={[
                           styles.chatTime,
-                          isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
                         ]}>
                         {formatTimeLabel(txn.transaction_date)}
                       </Text>
@@ -2786,7 +2714,6 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                     <Text
                       style={[
                         styles.editHistoryText,
-                        isDark && {color: themeColors.text?.secondary || '#9CA3AF'},
                       ]}>
                       {`Edited: ${editHistory
                         .map(formatEditHistoryValue)
@@ -2802,134 +2729,39 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
     );
   };
 
-  const headerGradientStart = account.icon_color || '#2563EB';
-  const headerGradientEnd = darkenHex(headerGradientStart);
-  const headerForegroundColor = getReadableHeaderColor(headerGradientStart);
-  const headerSubtitleColor = withAlpha(headerForegroundColor, 0.82);
-  const headerIconColor = account.icon_color || headerTexture.icon;
-  const headerAvatarToneStyle = useMemo(() => {
-    if (!isDark) {
-      return null;
-    }
-    return {
-      backgroundColor: themeColors.panel || themeColors.card,
-      borderColor: themeColors.border,
-    };
-  }, [isDark, themeColors.panel, themeColors.card, themeColors.border]);
+  const handleOpenPersonalize = useCallback(() => {
+    navigation.navigate('PersonalizeAccount', {accountId: account.id});
+  }, [navigation, account.id]);
 
   return (
     <View
       style={[
         styles.container,
-        isDark && {backgroundColor: themeColors.background},
-        !isDark &&
-          account.icon_color && {
-            backgroundColor: tintWithWhite(account.icon_color, 0.94),
-          },
+        {backgroundColor: themeColors.background},
       ]}>
-      {isDark && account.icon_color ? (
-        <View
-          pointerEvents="none"
-          style={[
-            styles.accountDarkTintOverlay,
-            {backgroundColor: withAlpha(account.icon_color, 0.09)},
-          ]}
-        />
-      ) : null}
-      {/* Sticky Header */}
-      <View style={styles.stickyHeader} onLayout={handleStickyHeaderLayout}>
-        <TexturedSurface
-          gradientStart={headerGradientStart}
-          gradientEnd={headerGradientEnd}
-          style={[
-            styles.header,
-            {
-              paddingTop: spacing.sm + insets.top,
-            },
-            account.icon_color && {
-              borderBottomColor: withAlpha(account.icon_color, 0.3),
-            },
-          ]}>
-          <View style={styles.headerTopRow}>
-            <TouchableOpacity
-              onPress={handleBackNavigation}
-              style={styles.backButton}>
-              <Icon name="chevron-back" size={22} color={headerTexture.icon} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('PersonalizeAccount', {accountId: account.id})}
-              style={styles.accountAvatarTap}
-              activeOpacity={0.85}>
-              <View
-                style={[
-                  styles.accountAvatar,
-                  headerAvatarToneStyle,
-                ]}>
-                {renderAccountHeaderIcon(
-                  account?.icon,
-                  28,
-                  headerIconColor
-                )}
-              </View>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('PersonalizeAccount', {accountId: account.id})}
-              style={styles.headerTitleBlock}
-              activeOpacity={0.85}>
-              <Text style={[styles.headerTitle, {color: headerForegroundColor}]}>
-                {account.account_name}
-              </Text>
-              <View
-                style={[
-                  styles.headerMetaPill,
-                  {
-                    backgroundColor: withAlpha(headerForegroundColor, 0.12),
-                    borderColor: withAlpha(headerForegroundColor, 0.14),
-                  },
-                ]}>
-                <Text style={[styles.headerSubtitle, {color: headerSubtitleColor}]}>
-                  {accountTypeLabel}
-                </Text>
-              </View>
-            </TouchableOpacity>
-            <View style={styles.headerActions}>
-              <ManualBackupButton
-                style={styles.backupButton}
-                iconWrapperStyle={styles.backupIconWrapper}
-                spinnerStyle={styles.backupSpinner}
-                iconColor={headerTexture.icon}
-              />
-              <View ref={menuButtonRef} collapsable={false}>
-                <TouchableOpacity onPress={openAccountMenu} style={styles.menuButton}>
-                  <Icon
-                    name="ellipsis-vertical"
-                    size={22}
-                    color={headerTexture.icon}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </TexturedSurface>
-        <DashboardPeriodFilter
-          quickPeriod={quickPeriod}
-          onQuickPeriodChange={handleQuickPeriodSelect}
-          selectedMonth={null}
-          selectedYear={null}
-          customStartDate={customStartDate}
-          customEndDate={customEndDate}
-          onCustomDateRange={handleCustomDateRange}
-          onClearAll={handleClearDateRange}
-          accounts={[account]}
-          monthStartDay={monthStartDay}
-          filteredEarning={filteredAdded}
-          filteredWithdrawals={filteredWithdrawals}
-          netBalance={totalBalance}
-          formatCurrencyRupee={formatCurrency}
-          themeColor={account.icon_color || '#059669'}
-          metricsLabels={metricsLabels}
-        />
-      </View>
+      <AccountDetailHeader
+        insets={insets}
+        account={account}
+        handleBackNavigation={handleBackNavigation}
+        handleStickyHeaderLayout={handleStickyHeaderLayout}
+        accountTypeLabel={accountTypeLabel}
+        renderAccountHeaderIcon={renderAccountHeaderIcon}
+        menuButtonRef={menuButtonRef}
+        openAccountMenu={openAccountMenu}
+        handleOpenPersonalize={handleOpenPersonalize}
+        quickPeriod={quickPeriod}
+        handleQuickPeriodSelect={handleQuickPeriodSelect}
+        customStartDate={customStartDate}
+        customEndDate={customEndDate}
+        handleCustomDateRange={handleCustomDateRange}
+        handleClearDateRange={handleClearDateRange}
+        monthStartDay={monthStartDay}
+        filteredAdded={filteredAdded}
+        filteredWithdrawals={filteredWithdrawals}
+        totalBalance={totalBalance}
+        formatCurrency={formatCurrency}
+        metricsLabels={metricsLabels}
+      />
       <View style={[styles.listSpacer, {paddingTop: headerHeight}]}>
         {renderTransactions()}
       </View>
@@ -2940,11 +2772,9 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
         style={[
           styles.bottomSection,
           {
-            backgroundColor: themeColors.card || colors.white,
+            backgroundColor: themeColors.card,
+            borderTopColor: themeColors.border,
             paddingBottom: spacing.md + insets.bottom,
-          },
-          account.icon_color && {
-            borderTopColor: withAlpha(account.icon_color, 0.3),
           },
         ]}>
         {deferredUiReady ? renderTransferLogBlock() : null}
@@ -3027,12 +2857,12 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
             styles.scheduledFab,
             {
               bottom: spacing.md + insets.bottom + 88,
-              backgroundColor: 'rgba(15, 118, 110, 0.78)',
+              backgroundColor: themeColors.primary,
             },
           ]}
           activeOpacity={0.9}
           onPress={handleOpenScheduledEntries}>
-          <Icon name="time-outline" size={22} color="#FFFFFF" />
+          <Icon name="time-outline" size={22} color={themeColors.onPrimary} />
           <View style={styles.scheduledFabBadge}>
             <Text style={styles.scheduledFabBadgeText}>
               {scheduledEntriesCount > 99 ? '99+' : String(scheduledEntriesCount)}
@@ -3168,7 +2998,7 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                   }
                 }}
                 loading={loading}
-                activityColor={colors.white}
+                activityColor={colors.onPrimary}
               />
           </Animated.View>
         </View>
@@ -3373,7 +3203,7 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                 textStyle={styles.modalAddButtonText}
                 onPress={handleTransferFromSaving}
                 loading={loading}
-                activityColor={colors.white}
+                activityColor={colors.onPrimary}
               />
             </View>
           </Animated.View>
@@ -3584,7 +3414,7 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                   }
                 }}
                 loading={loading}
-                activityColor={colors.white}
+                activityColor={colors.onPrimary}
               />
             </View>
           </Animated.View>
@@ -3937,8 +3767,6 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
                   <ToggleSwitch
                     value={showBalanceInDashboard}
                     onValueChange={handleToggleShowBalanceInDashboard}
-                    trackColor={{false: '#D1D5DB', true: '#86EFAC'}}
-                    thumbColor={showBalanceInDashboard ? '#16A34A' : themeColors.surface}
                   />
                 </View>
               </>
@@ -4022,138 +3850,15 @@ const ExpensesAccountDetailScreen = ({route, navigation}) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = colors => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
-  accountDarkTintOverlay: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  stickyHeader: {
-    backgroundColor: colors.headerBg,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    elevation: 4,
-  },
-  header: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: colors.headerBg,
-    borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
-    elevation: 2,
-  },
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    minHeight: 78,
-  },
-  backButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: -4,
-  },
-  headerTitle: {
-    fontSize: fontSize.large,
-    fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
-    textAlign: 'left',
-  },
-  headerTitleBlock: {
-    flex: 1,
-    alignItems: 'flex-start',
-    justifyContent: 'center',
-    paddingLeft: spacing.md - 2,
-    paddingRight: spacing.xs,
-  },
-  headerSubtitle: {
-    fontSize: 11,
-    fontWeight: fontWeight.medium,
-    color: headerTexture.title,
-    textAlign: 'left',
-    opacity: 0.92,
-  },
-  headerMetaPill: {
-    marginTop: spacing.xs + 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginLeft: spacing.sm,
-    gap: 8,
-  },
-  accountAvatar: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: colors.white,
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: spacing.xs,
-    marginRight: spacing.xs,
-    shadowColor: '#04140d',
-    shadowOffset: {width: 0, height: 8},
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    elevation: 2,
-  },
-  accountAvatarTap: {
-    marginLeft: 0,
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backupButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    padding: 0,
-  },
-  backupIconWrapper: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backupSpinner: {
-    position: 'absolute',
-    width: 30,
-    height: 30,
-  },
-  menuButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
   headerMetricsSection: {
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
   },
   optionsOverlay: {
     flex: 1,
@@ -4164,7 +3869,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionsContainer: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingBottom: spacing.lg,
@@ -4176,10 +3881,10 @@ const styles = StyleSheet.create({
   },
   accountMenuCard: {
     position: 'absolute',
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(11,42,27,0.12)',
+    borderColor: colors.border,
     paddingBottom: spacing.sm,
     elevation: 8,
     shadowColor: colors.black,
@@ -4209,7 +3914,7 @@ const styles = StyleSheet.create({
   },
   accountMenuDivider: {
     height: 1,
-    backgroundColor: 'rgba(15,23,42,0.08)',
+    backgroundColor: colors.primarySoft,
     marginVertical: 8,
   },
   optionsHeader: {
@@ -4245,7 +3950,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   optionDeleteText: {
-    color: '#B91C1C',
+    color: colors.error,
   },
   optionButtonDisabled: {
     opacity: 0.6,
@@ -4288,13 +3993,13 @@ const styles = StyleSheet.create({
   },
   dropdownLabel: {
     fontSize: 12,
-    color: '#4B5563',
+    color: colors.text.secondary,
     marginBottom: 4,
   },
   dropdown: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: colors.border,
     borderRadius: 8,
     padding: 6,
     flexDirection: 'row',
@@ -4304,15 +4009,15 @@ const styles = StyleSheet.create({
   dropdownText: {
     fontSize: 13,
     fontWeight: fontWeight.semibold,
-    color: '#1F2937',
+    color: colors.text.primary,
     flex: 1,
   },
   dropdownDisabled: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.surfaceMuted,
     opacity: 0.6,
   },
   dropdownTextDisabled: {
-    color: '#9CA3AF',
+    color: colors.text.light,
   },
   accountMetricsRow: {
     flexDirection: 'row',
@@ -4324,7 +4029,7 @@ const styles = StyleSheet.create({
   accountMetricDivider: {
     width: 1,
     height: 44,
-    backgroundColor: '#CBD5E1',
+    backgroundColor: colors.border,
     marginHorizontal: spacing.sm,
   },
   accountMetricLabelRow: {
@@ -4344,24 +4049,24 @@ const styles = StyleSheet.create({
     marginLeft: METRIC_LABEL_OFFSET,
   },
   accountMetricIconNegative: {
-    backgroundColor: '#EF4444',
+    backgroundColor: colors.error,
   },
   accountMetricLabel: {
     fontSize: 13,
-    color: '#4B5563',
+    color: colors.text.secondary,
     textAlign: 'left',
   },
   accountMetricValue: {
     fontSize: fontSize.large,
     fontWeight: fontWeight.bold,
-    color: '#1F2937',
+    color: colors.text.primary,
     textAlign: 'left',
   },
   accountMetricNegative: {
-    color: '#EF4444',
+    color: colors.error,
   },
   accountMetricSavings: {
-    color: '#16A34A',
+    color: colors.success,
   },
   periodOverlay: {
     flex: 1,
@@ -4371,7 +4076,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   periodDropdownModal: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 12,
     width: '100%',
     maxWidth: 320,
@@ -4384,7 +4089,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   periodDropdownModalScrollable: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 12,
     width: '100%',
     maxWidth: 320,
@@ -4402,10 +4107,10 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: colors.border,
   },
   periodDropdownOptionActive: {
-    backgroundColor: '#F0F9FF',
+    backgroundColor: colors.surfaceMuted,
   },
   periodDropdownOptionText: {
     fontSize: fontSize.medium,
@@ -4430,13 +4135,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     paddingHorizontal: spacing.md,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: withAlpha(colors.error, 0.1),
     borderBottomWidth: 1,
-    borderBottomColor: '#FCA5A5',
+    borderBottomColor: withAlpha(colors.error, 0.4),
   },
   periodDropdownOptionClearText: {
     fontSize: fontSize.medium,
-    color: '#EF4444',
+    color: colors.error,
     fontWeight: fontWeight.semibold,
   },
   receiptSheetContainer: {
@@ -4466,9 +4171,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md, // Increased padding
     paddingHorizontal: spacing.sm,
     borderRadius: 12, // Slightly larger border radius
-    backgroundColor: colors.white, // Use white for better contrast with sheet background
+    backgroundColor: colors.card, // Use white for better contrast with sheet background
     // Subtle shadow for card effect
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -4510,7 +4215,7 @@ const styles = StyleSheet.create({
   },
   datePill: {
     alignSelf: 'center',
-    backgroundColor: '#D9E7E3',
+    backgroundColor: colors.surfaceMuted,
     paddingVertical: 4,
     paddingHorizontal: 10,
     borderRadius: 12,
@@ -4518,7 +4223,7 @@ const styles = StyleSheet.create({
   },
   datePillText: {
     fontSize: fontSize.small,
-    color: '#4B5563',
+    color: colors.text.secondary,
     fontWeight: fontWeight.semibold,
   },
   chatRow: {
@@ -4529,7 +4234,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   chatBubble: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -4538,7 +4243,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   chatBubbleDebit: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderColor: colors.border,
   },
   chatHeader: {
@@ -4556,30 +4261,30 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#D1FAE5',
+    backgroundColor: withAlpha(colors.success, 0.14),
     alignItems: 'center',
     justifyContent: 'center',
   },
   chatIconDebit: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: withAlpha(colors.error, 0.1),
   },
   chatIconTransfer: {
-    backgroundColor: 'rgba(59, 130, 246, 0.16)',
+    backgroundColor: colors.primarySoft,
   },
   chatAmount: {
     fontSize: fontSize.large,
     fontWeight: fontWeight.bold,
-    color: '#10B981',
+    color: colors.success,
     flex: 1,
   },
   chatAmountDebit: {
-    color: '#EF4444',
+    color: colors.error,
   },
   chatAmountTransfer: {
-    color: '#3B82F6',
+    color: colors.text.primary,
   },
   chatAmountRequest: {
-    color: '#10B981',
+    color: colors.success,
   },
   chatTime: {
     fontSize: fontSize.small,
@@ -4651,16 +4356,16 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   transferLogDotTransfer: {
-    backgroundColor: '#2563EB',
+    backgroundColor: colors.primary,
   },
   transferLogDotRequest: {
-    backgroundColor: '#10B981',
+    backgroundColor: colors.success,
   },
   transferLogConnector: {
     width: 1,
     flex: 1,
     marginTop: 3,
-    backgroundColor: '#CBD5E1',
+    backgroundColor: colors.border,
     minHeight: 18,
   },
   transferLogContent: {
@@ -4669,17 +4374,17 @@ const styles = StyleSheet.create({
   },
   transferLogText: {
     fontSize: fontSize.small,
-    color: '#334155',
+    color: colors.text.primary,
     fontWeight: fontWeight.medium,
     lineHeight: 18,
   },
   transferLogMeta: {
     fontSize: fontSize.small,
-    color: '#64748B',
+    color: colors.text.secondary,
     marginTop: 2,
   },
   emptyHistory: {
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
@@ -4705,7 +4410,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -4720,7 +4425,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
@@ -4736,7 +4441,7 @@ const styles = StyleSheet.create({
   balanceValue: {
     fontSize: fontSize.large,
     fontWeight: fontWeight.bold,
-    color: '#10B981',
+    color: colors.success,
   },
   actionButtons: {
     flexDirection: 'row',
@@ -4883,7 +4588,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.surfaceMuted,
     overflow: 'hidden',
   },
   receiptThumb: {
@@ -4900,7 +4605,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     alignItems: 'center',
   },
   receiptActionText: {
@@ -4909,11 +4614,11 @@ const styles = StyleSheet.create({
     color: colors.text.primary,
   },
   receiptRemoveButton: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: withAlpha(colors.error, 0.1),
+    borderColor: withAlpha(colors.error, 0.4),
   },
   receiptRemoveText: {
-    color: '#B91C1C',
+    color: colors.error,
   },
   receiptBubbleThumb: {
     marginTop: 8,
@@ -4981,7 +4686,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     paddingLeft: 14,
   },
   amountInputBare: {
@@ -5017,7 +4722,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    backgroundColor: colors.white,
+    backgroundColor: colors.card,
     zIndex: 10,
     elevation: 8,
     overflow: 'hidden',
@@ -5029,13 +4734,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   floatingAccountItemSelected: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: colors.surfaceMuted,
   },
   floatingAccountText: {
     fontSize: 13,
@@ -5058,7 +4763,7 @@ const styles = StyleSheet.create({
   modalAddButtonText: {
     fontSize: fontSize.regular,
     fontWeight: fontWeight.bold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
   transferList: {
     maxHeight: 280,
@@ -5067,7 +4772,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: spacing.sm,
     borderRadius: 10,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: colors.card,
     marginBottom: spacing.xs,
   },
   transferName: {
@@ -5084,7 +4789,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 28,
     elevation: 6,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: {width: 0, height: 6},
@@ -5099,12 +4804,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.error,
   },
   scheduledFabBadgeText: {
     fontSize: 11,
     fontWeight: fontWeight.bold,
-    color: '#0F172A',
+    color: colors.white,
   },
 });
 

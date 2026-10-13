@@ -1,126 +1,95 @@
-import React, {useEffect, useRef} from 'react';
-import {Text, Animated, StyleSheet} from 'react-native';
+import React, {useCallback, useEffect, useRef} from 'react';
+import {Text, Animated, StyleSheet, PanResponder} from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
-import {spacing, fontSize, fontWeight} from '../utils/theme';
+import {darkColors, lightColors, radius, spacing, typography} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
 
-const Toast = ({message, type = 'success', duration = 2000, onDismiss, size = 'medium'}) => {
-  const {colors} = useTheme();
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
+const SWIPE_DISMISS_DISTANCE = 80;
+
+// Snackbar: slides up above the tab bar, inverse surface, swipe sideways to dismiss.
+const Toast = ({message, type = 'success', duration = 2000, onDismiss}) => {
+  const {colors, isDark} = useTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
+  const enter = useRef(new Animated.Value(0)).current;
+  const dragX = useRef(new Animated.Value(0)).current;
+  const dismissedRef = useRef(false);
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  const dismiss = useCallback(() => {
+    if (dismissedRef.current) {
+      return;
+    }
+    dismissedRef.current = true;
+    Animated.timing(enter, {
+      toValue: 0,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => onDismiss?.());
+  }, [enter, onDismiss]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 8,
+      onPanResponderMove: (_, gesture) => dragX.setValue(gesture.dx),
+      onPanResponderRelease: (_, gesture) => {
+        if (Math.abs(gesture.dx) > SWIPE_DISMISS_DISTANCE) {
+          Animated.timing(dragX, {
+            toValue: gesture.dx > 0 ? 500 : -500,
+            duration: 160,
+            useNativeDriver: true,
+          }).start(() => {
+            dismissedRef.current = true;
+            onDismissRef.current?.();
+          });
+          return;
+        }
+        Animated.spring(dragX, {toValue: 0, useNativeDriver: true}).start();
+      },
+    }),
+  ).current;
 
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(scaleAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    const timer = setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 0.8,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        onDismiss?.();
-      });
-    }, duration);
-
+    Animated.spring(enter, {
+      toValue: 1,
+      useNativeDriver: true,
+      tension: 90,
+      friction: 11,
+    }).start();
+    const timer = setTimeout(dismiss, duration);
     return () => clearTimeout(timer);
-  }, [duration, fadeAnim, scaleAnim, onDismiss]);
+  }, [duration, enter, dismiss]);
 
-  const getIconName = () => {
-    switch (type) {
-      case 'success':
-        return 'checkmark-circle';
-      case 'error':
-        return 'close-circle';
-      case 'warning':
-        return 'alert-circle';
-      case 'info':
-        return 'information-circle';
-      default:
-        return 'checkmark-circle';
-    }
-  };
-
-  const getColors = () => {
-    switch (type) {
-      case 'success':
-        return {
-          bg: '#DCFCE7',
-          text: '#166534',
-          icon: '#10B981',
-          border: '#10B981',
-        };
-      case 'error':
-        return {
-          bg: '#FEE2E2',
-          text: '#991B1B',
-          icon: '#EF4444',
-          border: '#EF4444',
-        };
-      case 'warning':
-        return {
-          bg: '#FEF3C7',
-          text: '#92400E',
-          icon: '#F59E0B',
-          border: '#F59E0B',
-        };
-      case 'info':
-        return {
-          bg: '#CFFAFE',
-          text: '#164E63',
-          icon: '#3B82F6',
-          border: '#3B82F6',
-        };
-      default:
-        return {
-          bg: '#DCFCE7',
-          text: '#166534',
-          icon: '#10B981',
-          border: '#10B981',
-        };
-    }
-  };
-
-  const toastColors = getColors();
+  const icon = {
+    success: 'checkmark-circle',
+    error: 'close-circle',
+    warning: 'alert-circle',
+    info: 'information-circle',
+  }[type] || 'checkmark-circle';
+  // The toast sits on an inverse surface, so its icon uses the opposite palette's tones.
+  const inverse = isDark ? lightColors : darkColors;
+  const iconColor = {
+    success: inverse.success,
+    error: inverse.error,
+    warning: inverse.warning,
+    info: colors.onPrimary,
+  }[type] || colors.onPrimary;
 
   return (
     <Animated.View
+      {...panResponder.panHandlers}
       style={[
         styles.toast,
         {
-          opacity: fadeAnim,
-          transform: [{scale: scaleAnim}],
-          backgroundColor: toastColors.bg,
-          borderColor: toastColors.border,
+          opacity: enter,
+          transform: [
+            {translateY: enter.interpolate({inputRange: [0, 1], outputRange: [40, 0]})},
+            {translateX: dragX},
+          ],
         },
       ]}>
-      <Icon name={getIconName()} size={24} color={toastColors.icon} />
-      <Text
-        style={[
-          styles.toastText,
-          {
-            color: toastColors.text,
-          },
-        ]}
-        numberOfLines={2}>
+      <Icon name={icon} size={22} color={iconColor} />
+      <Text style={styles.toastText} numberOfLines={2}>
         {message}
       </Text>
     </Animated.View>
@@ -130,30 +99,27 @@ const Toast = ({message, type = 'success', duration = 2000, onDismiss, size = 'm
 const createStyles = colors => StyleSheet.create({
   toast: {
     position: 'absolute',
-    top: '50%',
-    alignSelf: 'center',
-    borderRadius: 10,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
+    bottom: 112,
+    left: spacing.md,
+    right: spacing.md,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.sm + 4,
+    paddingHorizontal: spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
+    gap: spacing.sm + 2,
+    backgroundColor: colors.primary,
     elevation: 8,
     shadowColor: colors.shadow,
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    borderWidth: 1,
-    transform: [{translateY: -40}],
-    maxWidth: '90%',
+    shadowOffset: {width: 0, height: 6},
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
   },
   toastText: {
-    fontSize: fontSize.small,
-    fontWeight: fontWeight.semibold,
-    textAlign: 'center',
+    ...typography.label,
+    fontWeight: '600',
+    color: colors.onPrimary,
     flexShrink: 1,
-    lineHeight: 18,
   },
 });
 

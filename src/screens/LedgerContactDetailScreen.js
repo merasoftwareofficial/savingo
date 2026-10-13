@@ -27,14 +27,11 @@ import TapEffect from '../components/ui/TapEffect';
 import ChatComposer from '../components/ledger/ChatComposer';
 import LedgerMessageBubble from '../components/ledger/LedgerMessageBubble';
 import {
-  deletedUiStyles,
-  getDeletedIconColor,
   getDeletedTapEffectProps,
   withDeletedStyle,
-  renderDeletedBadge,
-  renderDeletedNote,
+  useDeletedUi,
 } from '../components/ui/deleteui';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {useToast} from '../hooks/useToast';
 import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -269,6 +266,8 @@ const hexToRgba = (hexColor, alpha = 1) => {
 
 const LedgerContactDetailScreen = ({route, navigation}) => {
   const {colors, isDark} = useTheme();
+  const {deletedUiStyles, getDeletedIconColor, renderDeletedBadge, renderDeletedNote} =
+    useDeletedUi();
   const {showAlert} = useAppAlert();
   const themedAlert = useCallback(
     (title, message, actions) => {
@@ -2480,7 +2479,7 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
                   size={16}
                   color={getDeletedIconColor(
                     isDeleted,
-                    isPaid ? '#EF4444' : '#10B981',
+                    isPaid ? colors.error : colors.success,
                   )}
                 />
               </View>
@@ -2631,7 +2630,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
             <LedgerSelectionToolbar
               styles={styles}
               selectedCount={selectedCount}
-              headerTexture={headerTexture}
               onClearSelection={clearSelectionMode}
               onCopySelected={handleCopySelectedMessages}
               onDeleteSelected={handleDeleteSelectedMessages}
@@ -2639,7 +2637,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
           ) : (
             <LedgerContactHeader
               styles={styles}
-              headerTexture={headerTexture}
               onBackPress={() => {
                 perfLog('back:header-press', {
                   shouldHideActionButtons,
@@ -2776,8 +2773,6 @@ const LedgerContactDetailScreen = ({route, navigation}) => {
               <ToggleSwitch
                 value={syncAllEntriesEnabled}
                 onValueChange={toggleSyncAllEntries}
-                trackColor={{false: colors.border, true: colors.success}}
-                thumbColor={syncAllEntriesEnabled ? colors.white : colors.surface}
               />
             </View>
             <View style={styles.menuDivider} />
@@ -3075,7 +3070,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     // Non-white fallback to avoid white flash before textured header paints.
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     elevation: 2,
@@ -3121,7 +3116,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
   headerTitle: {
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
     textAlign: 'left',
   },
   headerSubtitle: {
@@ -3148,7 +3143,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     marginLeft: spacing.sm,
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
   },
   selectionHeaderActions: {
     flexDirection: 'row',
@@ -3196,7 +3191,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
   contactAvatarText: {
     fontSize: 36,
     fontWeight: fontWeight.bold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
   contactName: {
     fontSize: fontSize.xxlarge,
@@ -3250,8 +3245,8 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: colors.surfaceMuted,
     paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    borderRadius: 999,
     marginBottom: spacing.sm,
   },
   datePillText: {
@@ -3269,7 +3264,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
   },
   chatBubble: {
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: colors.border,
     padding: 10,
@@ -3427,6 +3422,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
   chatBubbleSent: {
     backgroundColor: isDark ? hexToRgba(colors.primary, 0.26) : '#DCF8C6',
     alignSelf: 'flex-end',
+    borderBottomRightRadius: 6,
   },
   // Sent-bubble status tones read by LedgerMessageBubble: sending/sent, delivered, read.
   chatBubbleSentPending: {
@@ -3442,8 +3438,9 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     borderColor: isDark ? hexToRgba('#22C55E', 0.42) : '#BFE8A3',
   },
   chatBubbleReceived: {
-    backgroundColor: isDark ? colors.surface : '#E8E8E8',
+    backgroundColor: isDark ? colors.surface : colors.card,
     alignSelf: 'flex-start',
+    borderBottomLeftRadius: 6,
   },
   messageSelectableRow: {
     width: '100%',
@@ -3481,16 +3478,16 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     backgroundColor: colors.card,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
     gap: spacing.sm,
   },
   chatInput: {
     flex: 1,
     backgroundColor: colors.input,
-    borderRadius: 20,
+    borderRadius: 22,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     fontSize: fontSize.medium,
     maxHeight: 100,
     color: colors.text.primary,
@@ -3905,10 +3902,10 @@ const createStyles = (colors, isDark) => StyleSheet.create({
     alignItems: 'center',
   },
   modalAddButtonPaid: {
-    backgroundColor: '#EF4444',
+    backgroundColor: colors.error,
   },
   modalAddButtonGet: {
-    backgroundColor: '#10B981',
+    backgroundColor: colors.success,
   },
   modalAddButtonText: {
     fontSize: fontSize.regular,
@@ -4009,7 +4006,7 @@ const createStyles = (colors, isDark) => StyleSheet.create({
   promptButtonTextPrimary: {
     fontSize: fontSize.medium,
     fontWeight: fontWeight.semibold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
 });
 

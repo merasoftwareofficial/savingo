@@ -1,19 +1,41 @@
 import React, {useMemo} from 'react';
-import {
-  ActivityIndicator,
-  Modal,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import {Modal, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {useTheme} from '../../context/ThemeContext';
-import {fontSize, fontWeight, spacing} from '../../utils/theme';
+import {radius, spacing, typography} from '../../utils/theme';
+import {withAlpha} from '../../utils/color';
+import IconCircle from './IconCircle';
+import Button from './Button';
+
+const TONE_ICONS = {
+  error: 'close-circle',
+  success: 'checkmark-circle',
+  warning: 'alert-circle',
+  info: 'information-circle',
+};
+
+// Picks the icon tone from an explicit `tone`, the title wording, or a destructive action.
+const resolveTone = (tone, title, actions) => {
+  if (TONE_ICONS[tone]) {
+    return tone;
+  }
+  const text = String(title || '').toLowerCase();
+  if (/(error|fail|invalid|unable)/.test(text)) {
+    return 'error';
+  }
+  if (/(success|complete|done|saved|restored)/.test(text)) {
+    return 'success';
+  }
+  if (actions.some(action => action?.style === 'destructive')) {
+    return 'warning';
+  }
+  return 'info';
+};
 
 const AppAlertModal = ({
   visible,
   title,
   message,
+  tone,
   actions = [],
   processing = false,
   processingIndex = -1,
@@ -25,12 +47,21 @@ const AppAlertModal = ({
   const safeActions = actions.length
     ? actions
     : [{text: 'OK', style: 'default'}];
+  const resolvedTone = resolveTone(tone, title, safeActions);
+  const toneColor = {
+    error: colors.error,
+    success: colors.success,
+    warning: colors.warning,
+    info: colors.text.primary,
+  }[resolvedTone];
+  const stacked = safeActions.length > 2;
 
   return (
     <Modal
       transparent
       visible={Boolean(visible)}
       animationType="fade"
+      statusBarTranslucent
       onRequestClose={onRequestClose}>
       <View style={styles.overlay}>
         <TouchableOpacity
@@ -39,44 +70,38 @@ const AppAlertModal = ({
           onPress={onRequestClose}
         />
         <View style={styles.card}>
+          <IconCircle
+            name={TONE_ICONS[resolvedTone]}
+            size={52}
+            iconSize={28}
+            color={toneColor}
+            background={withAlpha(toneColor, 0.12)}
+            style={styles.icon}
+          />
           {title ? <Text style={styles.title}>{title}</Text> : null}
           {message ? <Text style={styles.message}>{message}</Text> : null}
 
-          <View style={styles.actions}>
+          <View style={[styles.actions, stacked && styles.actionsStacked]}>
             {safeActions.map((action, index) => {
               const styleType = String(action?.style || 'default');
-              const isDestructive = styleType === 'destructive';
-              const isCancel = styleType === 'cancel';
-              const disabled = processing;
-              const showLoader = processing && processingIndex === index;
-
+              const variant =
+                styleType === 'destructive'
+                  ? 'danger'
+                  : styleType === 'cancel'
+                  ? 'secondary'
+                  : safeActions.length > 1 && index < safeActions.length - 1
+                  ? 'secondary'
+                  : 'primary';
               return (
-                <TouchableOpacity
+                <Button
                   key={`${String(action?.text || 'action')}-${index}`}
-                  style={[
-                    styles.button,
-                    isDestructive && styles.buttonDestructive,
-                    isCancel && styles.buttonCancel,
-                  ]}
-                  activeOpacity={0.86}
-                  disabled={disabled}
-                  onPress={() => onActionPress?.(index)}>
-                  {showLoader ? (
-                    <ActivityIndicator
-                      size="small"
-                      color={isDestructive ? colors.white : colors.text.primary}
-                    />
-                  ) : (
-                    <Text
-                      style={[
-                        styles.buttonText,
-                        isDestructive && styles.buttonTextDestructive,
-                        isCancel && styles.buttonTextCancel,
-                      ]}>
-                      {String(action?.text || 'OK')}
-                    </Text>
-                  )}
-                </TouchableOpacity>
+                  label={String(action?.text || 'OK')}
+                  variant={variant}
+                  loading={processing && processingIndex === index}
+                  disabled={processing}
+                  onPress={() => onActionPress?.(index)}
+                  style={stacked ? styles.buttonStacked : styles.button}
+                />
               );
             })}
           </View>
@@ -102,66 +127,43 @@ const createStyles = colors =>
       width: '100%',
       maxWidth: 360,
       backgroundColor: colors.modal,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: colors.border,
+      borderRadius: radius.xl,
       paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.lg,
-      gap: spacing.sm,
+      paddingTop: spacing.lg,
+      paddingBottom: spacing.md + 4,
+      alignItems: 'center',
+    },
+    icon: {
+      marginBottom: spacing.md - 4,
     },
     title: {
-      fontSize: fontSize.large,
-      fontWeight: fontWeight.bold,
+      ...typography.heading,
+      fontSize: 18,
       color: colors.text.primary,
       textAlign: 'center',
     },
     message: {
-      fontSize: fontSize.medium,
+      ...typography.body,
+      fontSize: 14,
       color: colors.text.secondary,
-      lineHeight: 20,
       textAlign: 'center',
+      marginTop: spacing.xs + 2,
     },
     actions: {
-      marginTop: spacing.sm,
+      alignSelf: 'stretch',
+      marginTop: spacing.lg,
       flexDirection: 'row',
       gap: spacing.sm,
     },
+    actionsStacked: {
+      flexDirection: 'column',
+    },
     button: {
       flex: 1,
-      minHeight: 44,
-      borderRadius: 10,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: 'center',
-      justifyContent: 'center',
-      paddingHorizontal: spacing.md,
+      paddingHorizontal: spacing.sm,
     },
-    buttonDestructive: {
-      borderColor: colors.error,
-      backgroundColor: colors.error,
-      borderWidth: 0,
-      shadowColor: colors.error,
-      shadowOffset: {width: 0, height: 8},
-      shadowOpacity: 0.18,
-      shadowRadius: 14,
-      elevation: 3,
-    },
-    buttonCancel: {
-      backgroundColor: colors.surface,
-      borderColor: colors.border,
-    },
-    buttonText: {
-      fontSize: fontSize.medium,
-      fontWeight: fontWeight.semibold,
-      color: colors.text.primary,
-    },
-    buttonTextDestructive: {
-      color: colors.white,
-      letterSpacing: 0.2,
-    },
-    buttonTextCancel: {
-      color: colors.text.primary,
+    buttonStacked: {
+      alignSelf: 'stretch',
     },
   });
 

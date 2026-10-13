@@ -1052,7 +1052,7 @@ const createStyles = colors => StyleSheet.create({
     borderRadius: 12,
   },
   contactAvatarText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.large,
     fontWeight: fontWeight.bold,
   },
@@ -1086,7 +1086,7 @@ const createStyles = colors => StyleSheet.create({
     borderRadius: 8,
   },
   inviteButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
   },

@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {useToast} from '../hooks/useToast';
 import TexturedSurface from '../components/TexturedSurface';
 import {useTheme} from '../context/ThemeContext';
@@ -82,7 +82,7 @@ const QuestionAnswerScreen = ({navigation, route}) => {
           style={styles.backButton}
           onPress={handleBack}
           accessibilityLabel="Go back">
-          <Icon name="chevron-back" size={22} color={headerTexture.icon} />
+          <Icon name="chevron-back" size={22} color={colors.headerIcon} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>FAQs</Text>
         <View style={styles.headerSpacer} />
@@ -160,7 +160,7 @@ const createStyles = colors => StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
   },
   backButton: {
     padding: spacing.xs,
@@ -170,7 +170,7 @@ const createStyles = colors => StyleSheet.create({
     textAlign: 'center',
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
   },
   headerSpacer: {
     width: 32,

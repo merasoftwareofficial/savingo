@@ -6,16 +6,26 @@ import {
   Animated,
   StyleSheet,
   ScrollView,
+  PanResponder,
 } from 'react-native';
-import {spacing} from '../utils/theme';
+import {radius, spacing} from '../utils/theme';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../context/ThemeContext';
+import SheetHeader from './ui/SheetHeader';
 
-const BottomSheet = ({visible, onClose, children}) => {
+const HIDDEN_OFFSET = 400;
+const DRAG_CLOSE_DISTANCE = 90;
+
+// Modal bottom sheet. Pass `title` (and optional `subtitle`) to get the standard header.
+// Drag the handle area down to close.
+const BottomSheet = ({visible, onClose, title, subtitle, children}) => {
   const insets = useSafeAreaInsets();
   const {colors} = useTheme();
   const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const contentTranslateY = useRef(new Animated.Value(300)).current;
+  const contentTranslateY = useRef(new Animated.Value(HIDDEN_OFFSET)).current;
+  const dragY = useRef(new Animated.Value(0)).current;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   const styles = React.useMemo(() => StyleSheet.create({
     overlay: {
@@ -27,42 +37,61 @@ const BottomSheet = ({visible, onClose, children}) => {
       flex: 1,
     },
     container: {
-      backgroundColor: colors.card,
-      borderTopLeftRadius: 20,
-      borderTopRightRadius: 20,
-      maxHeight: '70%',
-      elevation: 10,
+      backgroundColor: colors.modal,
+      borderTopLeftRadius: radius.xxl,
+      borderTopRightRadius: radius.xxl,
+      maxHeight: '80%',
+      elevation: 12,
       shadowColor: colors.shadow,
       shadowOffset: {width: 0, height: -4},
-      shadowOpacity: 0.3,
-      shadowRadius: 8,
+      shadowOpacity: 0.12,
+      shadowRadius: 16,
+    },
+    handleArea: {
+      paddingTop: 10,
+      paddingBottom: spacing.sm,
+      alignItems: 'center',
     },
     handle: {
-      width: 36,
-      height: 4,
-      borderRadius: 2,
+      width: 40,
+      height: 5,
+      borderRadius: radius.pill,
       backgroundColor: colors.border,
-      alignSelf: 'center',
-      marginTop: 10,
-      marginBottom: 4,
     },
     scrollContent: {
       paddingBottom: spacing.xs,
     },
   }), [colors]);
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 6,
+      onPanResponderMove: (_, gesture) => {
+        dragY.setValue(Math.max(0, gesture.dy));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > DRAG_CLOSE_DISTANCE || gesture.vy > 1.2) {
+          onCloseRef.current?.();
+          return;
+        }
+        Animated.spring(dragY, {toValue: 0, useNativeDriver: true, friction: 8}).start();
+      },
+    }),
+  ).current;
+
   useEffect(() => {
     if (visible) {
+      dragY.setValue(0);
       Animated.parallel([
         Animated.timing(overlayOpacity, {
           toValue: 1,
-          duration: 250,
+          duration: 220,
           useNativeDriver: true,
         }),
         Animated.spring(contentTranslateY, {
           toValue: 0,
-          tension: 65,
-          friction: 10,
+          tension: 70,
+          friction: 12,
           useNativeDriver: true,
         }),
       ]).start();
@@ -70,19 +99,19 @@ const BottomSheet = ({visible, onClose, children}) => {
       Animated.parallel([
         Animated.timing(overlayOpacity, {
           toValue: 0,
-          duration: 200,
+          duration: 180,
           useNativeDriver: true,
         }),
         Animated.timing(contentTranslateY, {
-          toValue: 300,
+          toValue: HIDDEN_OFFSET,
           duration: 200,
           useNativeDriver: true,
         }),
       ]).start();
     }
-  }, [visible, overlayOpacity, contentTranslateY]);
+  }, [visible, overlayOpacity, contentTranslateY, dragY]);
 
-  if (!visible && contentTranslateY._value >= 300) {
+  if (!visible && contentTranslateY._value >= HIDDEN_OFFSET) {
     return null;
   }
 
@@ -104,9 +133,14 @@ const BottomSheet = ({visible, onClose, children}) => {
           style={[
             styles.container,
             {paddingBottom: spacing.lg + Math.max(insets.bottom, spacing.xs)},
-            {transform: [{translateY: contentTranslateY}]},
+            {transform: [{translateY: Animated.add(contentTranslateY, dragY)}]},
           ]}>
-          <View style={styles.handle} />
+          <View {...panResponder.panHandlers}>
+            <View style={styles.handleArea}>
+              <View style={styles.handle} />
+            </View>
+            {title ? <SheetHeader title={title} subtitle={subtitle} onClose={onClose} /> : null}
+          </View>
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}>

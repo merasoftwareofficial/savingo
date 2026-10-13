@@ -121,7 +121,7 @@ const IntroSlides = ({visible, onDone}) => {
     },
     nextText: {
       fontSize: fontSize.medium,
-      color: '#FFFFFF',
+      color: colors.onPrimary,
       fontWeight: fontWeight.semibold,
     },
   }), [colors]);

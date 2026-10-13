@@ -22,6 +22,9 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import FaArrowCircleDown from '../components/icons/FaArrowCircleDown';
 import BsCashCoin from '../components/icons/BsCashCoin';
 import {spacing, fontSize, fontWeight} from '../utils/theme';
+import Card from '../components/ui/Card';
+import EmptyState from '../components/ui/EmptyState';
+import Skeleton from '../components/ui/Skeleton';
 import FaArrowCircleUp from '../components/icons/FaArrowCircleUp';
 import RenameAccountModal from '../components/RenameAccountModal';
 import SetupRequirePopup from '../components/setuprequirepopup';
@@ -46,7 +49,6 @@ import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useTheme} from '../context/ThemeContext';
 import {useAppAlert} from '../context/AppAlertContext';
-import {useResolvedHeaderTextureVariant} from '../hooks/useAdaptiveThemeAccent';
 import {createPerfTimer, perfLog, perfNow} from '../utils/perfLogger';
 import {
   DASHBOARD_SHOW_SAVINGS_BALANCE_KEY,
@@ -91,12 +93,6 @@ const readAllTransactionsWithPerf = (dashboardPerf, stage) => {
   return transactions;
 };
 
-const hexToRgba = (hex, opacity) => {
-  if (!hex) return `rgba(0,0,0,${opacity})`;
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!result) return `rgba(0,0,0,${opacity})`;
-  return `rgba(${parseInt(result[1], 16)},${parseInt(result[2], 16)},${parseInt(result[3], 16)},${opacity})`;
-};
 
 const renderAccountIcon = (iconName, size, color) => {
   if (iconName === 'bs-cash-coin') {
@@ -106,7 +102,7 @@ const renderAccountIcon = (iconName, size, color) => {
 };
 
 const AllAccountsScreen = ({navigation, route}) => {
-  const {colors, isDark} = useTheme();
+  const {colors} = useTheme();
   const {showAlert} = useAppAlert();
   const themedAlert = useCallback(
     (title, message, actions) => {
@@ -165,11 +161,6 @@ const AllAccountsScreen = ({navigation, route}) => {
   const [newAccountName, setNewAccountName] = useState('');
   const {showToast} = useToast();
   const currencySymbol = useCurrencySymbol();
-  const themeAccent = useResolvedHeaderTextureVariant();
-  const fabSurfaceTone = themeAccent?.surfaceToneStrong || themeAccent?.selectionTone;
-  const fabBorderTone = themeAccent?.borderTone || themeAccent?.ring;
-  const fabIconColor = colors.white;
-  const fabThemeColor = themeAccent.accentSelection || themeAccent.accentPrimary;
 
   const [showCreditCardNotice, setShowCreditCardNotice] = useState(false);
   const [creditCardNoticeDontShow, setCreditCardNoticeDontShow] =
@@ -1385,8 +1376,6 @@ const AllAccountsScreen = ({navigation, route}) => {
           filteredWithdrawals={filteredWithdrawals}
           netBalance={netBalance}
           formatCurrencyRupee={formatCurrencyRupee}
-          themeColor={themeAccent.accentPrimary}
-          accentPalette={themeAccent}
           metricsLabels={metricsLabels}
         />
       </View>
@@ -1413,7 +1402,7 @@ const AllAccountsScreen = ({navigation, route}) => {
                   getSecondaryValue: account => closingAccountBalances[account.id] ?? 0,
                   highlightSecondaryValue: true,
                   fallbackIcon: 'trending-up',
-                  fallbackColor: '#22C55E',
+                  fallbackColor: colors.success,
                 },
                 ...(hideSavingAccountsOnDashboard
                   ? []
@@ -1427,7 +1416,7 @@ const AllAccountsScreen = ({navigation, route}) => {
                         getSecondaryValue: account => closingAccountBalances[account.id] ?? 0,
                         highlightSecondaryValue: true,
                         fallbackIcon: 'wallet',
-                        fallbackColor: '#F59E0B',
+                        fallbackColor: colors.warning,
                       },
                     ]),
                 ...(creditAccounts.length > 0
@@ -1441,7 +1430,7 @@ const AllAccountsScreen = ({navigation, route}) => {
                         getSecondaryValue: account => closingAccountBalances[account.id] ?? 0,
                         highlightSecondaryValue: true,
                         fallbackIcon: 'card-outline',
-                        fallbackColor: '#2563EB',
+                        fallbackColor: colors.text.secondary,
                       },
                     ]
                   : []),
@@ -1454,11 +1443,9 @@ const AllAccountsScreen = ({navigation, route}) => {
                   getSecondaryValue: account => periodAccountExpenses[account.id] ?? 0,
                   highlightSecondaryValue: true,
                   fallbackIcon: 'wallet',
-                  fallbackColor: '#EF4444',
+                  fallbackColor: colors.error,
                 },
               ]}
-              colors={colors}
-              isDark={isDark}
               cardPeriodText={cardPeriodText}
               formatCurrency={formatCurrency}
               onOpenAccount={account => {
@@ -1466,25 +1453,41 @@ const AllAccountsScreen = ({navigation, route}) => {
               }}
               onOpenContextMenu={openContextMenu}
               renderAccountIcon={renderAccountIcon}
-              hexToRgba={hexToRgba}
             />
           ) : !isInitialDashboardLoading ? (
-            <View style={styles.emptyAccounts}>
-              <Icon name="wallet-outline" size={48} color={colors.border} />
-              <Text style={styles.emptyText}>No accounts yet</Text>
-              <Text style={styles.emptySubtext}>
-                Create your first account to get started
-              </Text>
-            </View>
+            <Card padded={false}>
+              <EmptyState
+                icon="wallet-outline"
+                title="No accounts yet"
+                message="Create your first account to get started."
+                actionLabel="Add account"
+                onAction={handleAddAccountPress}
+              />
+            </Card>
           ) : null}
         </View>
         </ScrollView>
       </View>
 
       {isInitialDashboardLoading ? (
-        <View style={styles.initialLoaderOverlay}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.initialLoaderText}>Loading dashboard...</Text>
+        <View style={styles.initialLoaderOverlay} accessibilityLabel="Loading accounts">
+          {[0, 1].map(section => (
+            <View key={section} style={styles.skeletonSection}>
+              <Skeleton width={120} height={12} style={styles.skeletonTitle} />
+              <Card padded={false}>
+                {[0, 1, 2].map(row => (
+                  <View key={row} style={styles.skeletonRow}>
+                    <Skeleton width={42} height={42} radius={12} />
+                    <View style={styles.skeletonText}>
+                      <Skeleton width="60%" height={14} />
+                      <Skeleton width="35%" height={10} style={styles.skeletonGap} />
+                    </View>
+                    <Skeleton width={64} height={14} />
+                  </View>
+                ))}
+              </Card>
+            </View>
+          ))}
         </View>
       ) : null}
 
@@ -1516,29 +1519,29 @@ const AllAccountsScreen = ({navigation, route}) => {
           },
         ]}>
         <TouchableOpacity
-          style={[styles.fabActionPill, styles.fabActionPillEarning]}
+          style={styles.fabActionPill}
           onPress={() => openAddAccount('earning')}
           activeOpacity={0.85}>
-          <View style={[styles.fabActionPillIconBox, {backgroundColor: 'rgba(22, 163, 74, 0.12)'}]}>
-            <Icon name="trending-up-outline" size={20} color="#16A34A" />
+          <View style={styles.fabActionPillIconBox}>
+            <Icon name="trending-up-outline" size={20} color={colors.success} />
           </View>
           <Text style={[styles.fabActionPillText, {color: colors.text.primary}]}>Add Earning Account</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.fabActionPill, styles.fabActionPillCredit]}
+          style={styles.fabActionPill}
           onPress={() => openAddAccount('credit')}
           activeOpacity={0.85}>
-          <View style={[styles.fabActionPillIconBox, {backgroundColor: 'rgba(37, 99, 235, 0.12)'}]}>
-            <Icon name="card-outline" size={20} color="#2563EB" />
+          <View style={styles.fabActionPillIconBox}>
+            <Icon name="card-outline" size={20} color={colors.text.primary} />
           </View>
           <Text style={[styles.fabActionPillText, {color: colors.text.primary}]}>Add Credit Card Account</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.fabActionPill, styles.fabActionPillExpenses]}
+          style={styles.fabActionPill}
           onPress={() => openAddAccount('expenses')}
           activeOpacity={0.85}>
-          <View style={[styles.fabActionPillIconBox, {backgroundColor: 'rgba(239, 68, 68, 0.12)'}]}>
-            <Icon name="wallet-outline" size={20} color="#EF4444" />
+          <View style={styles.fabActionPillIconBox}>
+            <Icon name="wallet-outline" size={20} color={colors.error} />
           </View>
           <Text style={[styles.fabActionPillText, {color: colors.text.primary}]}>Add Expenses Account</Text>
         </TouchableOpacity>
@@ -1547,18 +1550,13 @@ const AllAccountsScreen = ({navigation, route}) => {
         ref={fabRef}
         style={[
           styles.fab,
-          {
-            bottom: fabBottomOffset,
-            backgroundColor: `${fabThemeColor}B8`,
-            borderColor: fabBorderTone,
-          },
-          fabExpanded && {backgroundColor: `${fabThemeColor}D4`},
+          {bottom: fabBottomOffset},
         ]}
         onPress={handleAddAccountPress}>
         <Icon
           name={fabExpanded ? 'close' : 'add'}
           size={26}
-          color={fabIconColor}
+          color={colors.onPrimary}
         />
       </TouchableOpacity>
 
@@ -1660,7 +1658,7 @@ const AllAccountsScreen = ({navigation, route}) => {
                     action.variant === 'danger'
                       ? colors.error
                       : action.selected
-                        ? '#10B981'
+                        ? colors.primary
                         : colors.text.primary
                   }
                 />
@@ -1752,23 +1750,10 @@ const createStyles = colors => StyleSheet.create({
   },
   scrollView: {
     flex: 1,
-    borderRadius: 12,
-    backgroundColor: colors.card,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    marginHorizontal: spacing.sm,
-    marginTop: spacing.sm,
-    elevation: 1,
-    shadowColor: colors.shadow,
-    shadowOffset: {width: 0, height: 1},
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    elevation: 0,
   },
   scrollViewContent: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl + 88,
   },
 
@@ -1791,26 +1776,21 @@ const createStyles = colors => StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     elevation: 5,
     shadowColor: colors.shadow,
     shadowOffset: {width: 0, height: 3},
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.12,
     shadowRadius: 6,
   },
   fabActionPillIconBox: {
     width: 36,
     height: 36,
     borderRadius: 10,
+    backgroundColor: colors.surfaceMuted,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  fabActionPillEarning: {
-    borderWidth: 1.5,
-    borderColor: 'rgba(22, 163, 74, 0.35)',
-  },
-  fabActionPillExpenses: {
-    borderWidth: 1.5,
-    borderColor: 'rgba(239, 68, 68, 0.35)',
   },
   fabActionPillText: {
     fontSize: 14,
@@ -1824,19 +1804,18 @@ const createStyles = colors => StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.16)',
-    borderWidth: 1.5,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 0,
-    shadowColor: 'transparent',
-    shadowOffset: {width: 0, height: 0},
-    shadowOpacity: 0,
-    shadowRadius: 0,
+    elevation: 6,
+    shadowColor: colors.shadow,
+    shadowOffset: {width: 0, height: 6},
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
   },
   // Accounts Section
   accountsSection: {
-    marginTop: spacing.md,
+    marginTop: 0,
     marginBottom: 0,
     paddingHorizontal: 0,
     paddingVertical: 0,
@@ -1998,26 +1977,6 @@ const createStyles = colors => StyleSheet.create({
     justifyContent: 'center',
   },
   // Empty State
-  emptyAccounts: {
-    backgroundColor: colors.panel,
-    borderRadius: 12,
-    padding: spacing.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: fontWeight.semibold,
-    color: colors.text.primary,
-    marginTop: 12,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    color: colors.text.secondary,
-    marginTop: 4,
-    textAlign: 'center',
-  },
   softRefreshBanner: {
     marginTop: spacing.sm,
     marginHorizontal: spacing.md,
@@ -2040,15 +1999,27 @@ const createStyles = colors => StyleSheet.create({
   initialLoaderOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
+    padding: spacing.md,
     zIndex: 20,
   },
-  initialLoaderText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-    color: colors.text.primary,
+  skeletonSection: {
+    marginBottom: spacing.lg - 4,
+  },
+  skeletonTitle: {
+    marginBottom: spacing.sm + 2,
+    marginLeft: spacing.xs,
+  },
+  skeletonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    gap: 12,
+  },
+  skeletonText: {
+    flex: 1,
+  },
+  skeletonGap: {
+    marginTop: 6,
   },
   // No Records Container
   noRecordsContainer: {
@@ -2157,7 +2128,7 @@ const createStyles = colors => StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   contextMenuItemTextSelected: {
-    color: '#10B981',
+    color: colors.primary,
     fontWeight: fontWeight.semibold,
   },
   contextMenuItemTextDisabled: {
@@ -2224,7 +2195,7 @@ const createStyles = colors => StyleSheet.create({
   renameModalAddButtonText: {
     fontSize: fontSize.regular,
     fontWeight: fontWeight.bold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -2256,7 +2227,7 @@ const createStyles = colors => StyleSheet.create({
     alignItems: 'center',
   },
   setupPrimaryButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
   },

@@ -1,5 +1,50 @@
 # QUICK_INDEX
 
+## Login opens the app; profile setup never forced — 2026-10-13 (owner: "sab sahi hai")
+Goal: after login the app opens directly (as if "Set Up Later" was pressed). The profile screen and everything around it stay as they were.
+- **Single rule:** `src/services/startupCoordinator.js` → `POST_LOGIN_ROUTE = 'Home'`; `getResolvedStartupRequiredRoute()` returns it.
+  - Before: `isExplicitStartupRoute` honoured a stored `'Home'`/`'ProfileSetup'`, then `profileSetupSkipped`, then `profileReadiness.getPostLoginRequiredRoute` (incomplete profile → `'ProfileSetup'`).
+  - Now: always Home. An old stored `'ProfileSetup'` value is ignored.
+  - Always-true checks removed: `requiredRoute !== 'Home'` early return in `resolveStartupSessionFlagsForUser`, `requiredRoute === 'Home'` in `needsPreparingRoute` and `readinessIntents`.
+- **Dead gate code removed:**
+  - `src/utils/profileReadiness.js` → `getPostLoginRequiredRoute`.
+  - `src/screens/ProfileSetupScreen.js` → skip-flag helpers (`getProfileSetupSkipKey`, `setProfileSetupSkippedFlag`, `clearProfileSetupSkippedFlag`) and the `profileSetupSkipped: true` write in `handleSkipForNow`.
+  - `App.tsx` → `routeName === 'ProfileSetup'` reset branch (it can no longer be produced; the `PreparingApp` branch stays).
+  - `clearStartupStateForLogout` still removes the legacy `profileSetup.skipped.<uid>` key.
+- **Unchanged:** ProfileSetup screen UI, Continue (`writeStartupSessionFlags` + reset to Boot), Set Up Later (back to Home), "Profile setup pending" ribbon + Setup now, Ledger add-contact setup popup, More > Profile Settings, backup gate (`isBackupEligibleUser`), logout.
+- **Restore decision:** the backup gate now also runs for incomplete profiles. `getBackupProfileGateState` is ready only with `setupComplete` + username, so a new user gets no restore (as before). The login writes the new user to the cache (`LoginScreen.js:148`) before the gate reads it.
+- **Validation:**
+  - New `__tests__/post-login-route.node.cjs` 5/5: new user → Home with no restore; complete profile → restore decision; stored ProfileSetup ignored; Boot → Home / PreparingApp; logout cleanup.
+  - eslint counts unchanged (0 / 0 / 1 / 19).
+  - Device (live log): `Login → Boot → Home → LedgerHome`, Setup now → ProfileSetup, Set Up Later → back. Owner confirmed Continue.
+- **Backup:** `../backup/fix23-skip-profile-gate`.
+
+## First-start popups simplified (Easy UI Step 3) + tab badge startup fix — 2026-10-13 (owner: "sab sahi hai")
+Goal: a new user is not hit by 4–5 popups on day one.
+- **Credit card "now available" notice:** hidden on a new install.
+  - New `src/utils/featureNotices.js` (`CREDIT_CARD_NOTICE_DISMISSED_KEY`, `FRESH_INSTALL_DISMISSED_NOTICE_KEYS`).
+  - `startupOrchestrator.ensureFirstRunFlags` writes them as dismissed (first install only).
+  - `AllAccountsScreen.js` imports the key; before, it was a private const there.
+- **"Complete your basic details" popup on every Accounts focus removed** (`AllAccountsScreen.js`).
+  - Removed: its state, never-show/show-count keys, focus check, handlers and modal, plus the unused `requiresProfileSetup`/`readCachedSessionUser` imports.
+  - `suppressSetupPopupOnce` plumbing removed from `MainTabNavigator.js` and `DashboardStackNavigator.js`.
+  - The ribbon and the Ledger add-contact popup remain.
+- **Intro slides:** new `src/components/IntroSlides.js` (3 slides: Ledger Talk, Accounts, Help; big icon, one line, dots, Skip, Next/Start).
+- **`src/utils/welcomePopupManager.js` rewritten:** `initWelcomePopup()` → `{kind: 'intro' | 'devNote' | null}`, plus `markIntroSeen`, `markDevNoteShown`.
+  - Before: the developer note ("Review us on Play Store") showed in sessions 1 and 2, only on the Dashboard / Ledger tab, through `hasShownThisSession`/`markShownThisSession`. It could miss if the first tab focused before init finished.
+  - Now: the intro shows once per install, on whichever tab opens. The developer note shows once, 7+ days after the first start (`welcome.firstOpenAt.v1`). Users with the legacy `welcome.sessionCount.v1 ≥ 1` or `welcome.permanentlyDismissed.v1` get neither.
+  - `WelcomePopup.js` (developer note) is unchanged.
+- **Notification permission order:** `MainTabNavigator.js` notification effect waits until `welcomeKind` is decided and the intro is closed.
+  - Before: it fired 700 ms after the tabs were ready, regardless.
+- **Tab badge startup fix (follow-up to the default-tab work):** `MainTabNavigator.loadInitialTab` now calls `setActiveTab` with the resolved / override tab.
+  - Before: the opening tab's `focus` event never reached `handleTabFocus`, so `activeTab` stayed `''` and the Automatic "A" badge appeared only after switching tabs. Proven on device with a probe (`activeTab: ""`).
+- **Validation:**
+  - New `__tests__/first-run.node.cjs` 4/4 (intro once, devNote after 7 days once, legacy users none, notice list).
+  - eslint counts unchanged; scanner clean.
+  - Fresh install on device (live log): `welcome kind = intro` → `intro done` → `notification prompt scheduled`. A on Ledger at start, moves to Accounts; no setup or credit popup on Accounts.
+- **Note:** very old users whose `FIRST_RUN_COMPLETED_KEY` is missing also get the credit notice dismissed (harmless).
+- **Backup:** `../backup/fix22-first-run`.
+
 ## Default tab: Automatic (last used) + tab badge + long-press shortcut — 2026-10-13 (owner: "perfect")
 Goal: new users are not dropped on an empty Dashboard. The app opens the tab used last; new users start on Ledger Talk. Users can see and change the start tab from the tab bar itself.
 - **SSOT:** `src/utils/defaultTabPreference.js` (rewritten).

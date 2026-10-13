@@ -28,7 +28,6 @@ import {
   spacing,
   fontSize,
   fontWeight,
-  headerTexture,
 } from '../utils/theme';
 import {clearLocalData} from '../services/database';
 import {clearAllAccountsData} from '../services/accountsDatabase';
@@ -41,8 +40,9 @@ import {
 } from '../utils/backupQueue';
 import {syncUserProfileToCloud} from '../services/userProfileService';
 import BottomSheet from '../components/BottomSheet';
-import CollapsibleSection from '../components/CollapsibleSection';
-import CollapsibleMenuItem from '../components/CollapsibleMenuItem';
+import Card from '../components/ui/Card';
+import ListRow from '../components/ui/ListRow';
+import SectionHeader from '../components/ui/SectionHeader';
 import {
   updateProfile,
   fetchUsersByPhones,
@@ -53,9 +53,9 @@ import {
 import {useToast} from '../hooks/useToast';
 import {COUNTRIES, countryToCurrency} from '../utils/countries';
 import TexturedSurface from '../components/TexturedSurface';
-import TapEffect from '../components/ui/TapEffect';
 import {getVaguePhoneError} from '../utils/phoneValidation';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 import {useAppAlert} from '../context/AppAlertContext';
 import {useSessionUser} from '../context/SessionUserContext';
 import {clearStartupStateForLogout} from '../services/startupCoordinator';
@@ -684,55 +684,57 @@ const MoreScreen = ({navigation, route, user, onProfileUpdate}) => {
     }
   };
 
-  const menuItems = [
+  const openExternalLink = url => {
+    Linking.openURL(url).catch(() =>
+      themedAlert('Error', 'Unable to open link. Please try again.'),
+    );
+  };
+  const versionName = NativeModules?.VersionInfo?.versionName ?? 'unknown';
+  const versionCode = NativeModules?.VersionInfo?.versionCode ?? 'unknown';
+
+  const menuGroups = [
     {
-      id: 'profile-settings',
-      title: 'Profile Settings',
-      icon: 'person-outline',
-      type: 'direct',
-      onPress: () => {
-        navigation.navigate('ProfileSettings', {user: currentUser});
-      },
+      id: 'account',
+      title: 'Account',
+      items: [
+        {
+          id: 'profile-settings',
+          title: 'Profile settings',
+          icon: 'person-outline',
+          onPress: () => navigation.navigate('ProfileSettings', {user: currentUser}),
+        },
+        {
+          id: 'backup',
+          title: 'Backup & restore',
+          icon: 'cloud-upload-outline',
+          onPress: () => navigation.navigate('Backup'),
+        },
+        {
+          id: 'settings',
+          title: 'Settings',
+          icon: 'settings-outline',
+          onPress: () => navigation.navigate('Settings'),
+        },
+      ],
     },
-    {
-      id: 'backup',
-      title: 'Backup & Restore',
-      icon: 'cloud-upload-outline',
-      type: 'direct',
-      onPress: () => {
-        navigation.navigate('Backup');
-      },
-    },
-    // {
-    //   id: 'notification-settings',
-    //   title: 'Notification Settings',
-    //   icon: 'notifications-outline',
-    //   type: 'direct',
-    //   onPress: () => {
-    //     skipNextSlideInRef.current = true;
-    //     navigation.navigate('NotificationSettings');
-    //   },
-    // },
     {
       id: 'help',
-      title: 'Help & Support',
-      icon: 'help-circle-outline',
-      type: 'collapsible',
-      subItems: [
+      title: 'Help & support',
+      items: [
         {
           id: 'faqs',
           title: 'FAQs',
-          onPress: () => {
-            navigation.navigate('FAQs');
-          },
+          icon: 'help-circle-outline',
+          onPress: () => navigation.navigate('FAQs'),
         },
         {
           id: 'help-whatsapp',
           title: 'Help on WhatsApp',
+          icon: 'logo-whatsapp',
           onPress: () => {
             const message = 'Hello, I would like to learn about Savingo.';
             const whatsappURL = `whatsapp://send?text=${encodeURIComponent(message)}`;
-            Linking.openURL(whatsappURL).catch(err =>
+            Linking.openURL(whatsappURL).catch(() =>
               themedAlert('Error', 'WhatsApp is not installed on your device.'),
             );
           },
@@ -740,46 +742,27 @@ const MoreScreen = ({navigation, route, user, onProfileUpdate}) => {
       ],
     },
     {
-      id: 'settings',
-      title: 'Settings',
-      icon: 'settings-outline',
-      type: 'direct',
-      onPress: () => {
-        navigation.navigate('Settings');
-      },
-    },
-    {
       id: 'about',
-      title: 'About Us',
-      icon: 'information-circle-outline',
-      type: 'collapsible',
-      subItems: [
+      title: 'About',
+      items: [
         {
           id: 'about-app',
-          title: 'About App',
-          onPress: () => {
-            const versionName = NativeModules?.VersionInfo?.versionName ?? 'unknown';
-            const versionCode = NativeModules?.VersionInfo?.versionCode ?? 'unknown';
-            themedAlert('Savingo', `Version ${versionName} (${versionCode})`);
-          },
+          title: 'About Savingo',
+          icon: 'information-circle-outline',
+          value: `v${versionName}`,
+          onPress: () => themedAlert('Savingo', `Version ${versionName} (${versionCode})`),
         },
         {
           id: 'privacy-policy',
-          title: 'Privacy Policy',
-          onPress: () => {
-            Linking.openURL('https://savingo.merasoftware.com/privacy-policy').catch(err =>
-              themedAlert('Error', 'Unable to open link. Please try again.'),
-            );
-          },
+          title: 'Privacy policy',
+          icon: 'shield-checkmark-outline',
+          onPress: () => openExternalLink('https://savingo.merasoftware.com/privacy-policy'),
         },
         {
           id: 'terms-conditions',
-          title: 'Terms & Conditions',
-          onPress: () => {
-             Linking.openURL('https://savingo.merasoftware.com/terms-of-service').catch(err =>
-              themedAlert('Error', 'Unable to open link. Please try again.'),
-            );
-          },
+          title: 'Terms & conditions',
+          icon: 'document-text-outline',
+          onPress: () => openExternalLink('https://savingo.merasoftware.com/terms-of-service'),
         },
       ],
     },
@@ -814,7 +797,7 @@ const MoreScreen = ({navigation, route, user, onProfileUpdate}) => {
             style={styles.backButton}
             onPress={handleBack}
             accessibilityLabel="Go back">
-            <Icon name="chevron-back" size={22} color={headerTexture.icon} />
+            <Icon name="chevron-back" size={22} color={colors.headerIcon} />
           </TouchableOpacity>
           <Text style={styles.moreHeaderTitle}>More</Text>
           <View style={styles.moreHeaderSpacer} />
@@ -822,83 +805,49 @@ const MoreScreen = ({navigation, route, user, onProfileUpdate}) => {
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}>
-          <TapEffect
-            style={styles.profileSection}
-            onPress={() => {
-              void navigateToProfileSettings();
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Open profile settings">
-            {profilePhotoUri ? (
-              <Image
-                source={{uri: profilePhotoUri}}
-                style={styles.profileImage}
-              />
-            ) : (
-              <View style={styles.profilePlaceholder}>
-                <Icon name="person" size={28} color={colors.white} />
-              </View>
-            )}
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>
-                {currentUser?.displayName || 'User'}
-              </Text>
-              <Text style={styles.profileEmail}>{currentUser?.email || ''}</Text>
-            </View>
-            <Icon
-              name="pencil"
-              size={20}
-              color={colors.text.light}
-              style={styles.profileArrow}
-            />
-          </TapEffect>
-
-          <View style={styles.menuSection}>
-            {menuItems.map(item => {
-              if (item.type === 'collapsible') {
-                return (
-                  <CollapsibleSection
-                    key={item.id}
-                    title={item.title}
-                    icon={item.icon}
-                    initialExpanded={false}>
-                    <View>
-                      {item.subItems?.map((subItem, index) => (
-                        <CollapsibleMenuItem
-                          key={subItem.id}
-                          title={subItem.title}
-                          onPress={subItem.onPress}
-                        />
-                      ))}
-                    </View>
-                  </CollapsibleSection>
-                );
-              }
-
-              // Direct menu item
-              return (
-                <TapEffect
-                  key={item.id}
-                  style={styles.directMenuItem}
-                  onPress={item.onPress}>
-                  <View style={styles.menuIconContainer}>
-                    <Icon name={item.icon} size={24} color={colors.primary} />
+          <Card padded={false} style={styles.profileCard}>
+            <ListRow
+              leading={
+                profilePhotoUri ? (
+                  <Image source={{uri: profilePhotoUri}} style={styles.profileImage} />
+                ) : (
+                  <View style={styles.profilePlaceholder}>
+                    <Icon name="person" size={26} color={colors.onPrimary} />
                   </View>
-                  <Text style={styles.menuText}>{item.title}</Text>
-                  <Icon
-                    name="chevron-forward"
-                    size={20}
-                    color={colors.text.light}
-                  />
-                </TapEffect>
-              );
-            })}
-          </View>
+                )
+              }
+              leadingSize={56}
+              title={currentUser?.displayName || 'User'}
+              subtitle={currentUser?.email || 'Tap to edit your profile'}
+              chevron
+              onPress={() => {
+                void navigateToProfileSettings();
+              }}
+            />
+          </Card>
 
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Icon name="log-out-outline" size={24} color={colors.error} />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
+          {menuGroups.map(group => (
+            <View key={group.id} style={styles.menuGroup}>
+              <SectionHeader title={group.title} />
+              <Card padded={false} style={styles.menuCard}>
+                {group.items.map((item, index) => (
+                  <ListRow
+                    key={item.id}
+                    icon={item.icon}
+                    title={item.title}
+                    value={item.value}
+                    chevron
+                    divider={index < group.items.length - 1}
+                    onPress={item.onPress}
+                  />
+                ))}
+              </Card>
+            </View>
+          ))}
+
+          <Card padded={false} style={styles.menuCard}>
+            <ListRow icon="log-out-outline" title="Logout" danger onPress={handleLogout} />
+          </Card>
         </ScrollView>
       </Animated.View>
       <Modal
@@ -960,8 +909,8 @@ const createStyles = colors => StyleSheet.create({
     backgroundColor: colors.background,
   },
   scrollContent: {
-    paddingTop: spacing.md,
-    paddingBottom: spacing.lg,
+    padding: spacing.md,
+    paddingBottom: spacing.xl * 2,
   },
   animatedContainer: {
     flex: 1,
@@ -973,7 +922,7 @@ const createStyles = colors => StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
   },
   backButton: {
     padding: spacing.xs,
@@ -983,28 +932,20 @@ const createStyles = colors => StyleSheet.create({
     textAlign: 'center',
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
   },
   moreHeaderSpacer: {
     width: 32,
   },
-  profileSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.panel,
-    padding: spacing.lg,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
+  profileCard: {
+    marginBottom: spacing.lg,
   },
-  profileInfo: {
-    flex: 1,
-    marginLeft: spacing.md,
+  menuGroup: {
+    marginBottom: spacing.lg - 4,
   },
-  profileArrow: {
-    marginLeft: spacing.sm,
+  menuCard: {
+    overflow: 'hidden',
+    marginBottom: spacing.lg - 4,
   },
   profileImage: {
     width: 56,
@@ -1018,20 +959,6 @@ const createStyles = colors => StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  profileName: {
-    fontSize: fontSize.xlarge,
-    fontWeight: fontWeight.bold,
-    color: colors.text.primary,
-    marginBottom: spacing.xs,
-  },
-  profileEmail: {
-    fontSize: fontSize.medium,
-    color: colors.text.secondary,
-  },
-  menuSection: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.md,
   },
   claimInboxCard: {
     backgroundColor: colors.panel,
@@ -1091,69 +1018,24 @@ const createStyles = colors => StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
   },
   claimApproveButtonText: {
-    color: '#0F8A4B',
+    color: colors.success,
     fontWeight: fontWeight.semibold,
     fontSize: fontSize.small,
   },
   claimRejectButtonText: {
-    color: '#C0392B',
+    color: colors.error,
     fontWeight: fontWeight.semibold,
     fontSize: fontSize.small,
   },
   claimBlockButtonText: {
-    color: '#475569',
+    color: colors.text.secondary,
     fontWeight: fontWeight.semibold,
     fontSize: fontSize.small,
-  },
-  directMenuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.panel,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.sm,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  menuIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.panelMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-  },
-  menuText: {
-    flex: 1,
-    fontSize: fontSize.regular,
-    fontWeight: fontWeight.medium,
-    color: colors.text.primary,
   },
   menuSubtitle: {
     fontSize: fontSize.regular,
     color: colors.text.secondary,
     marginRight: spacing.sm,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.panel,
-    paddingVertical: 14,
-    paddingHorizontal: spacing.md,
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.lg,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.error,
-  },
-  logoutText: {
-    fontSize: fontSize.regular,
-    fontWeight: fontWeight.semibold,
-    color: colors.error,
-    marginLeft: spacing.sm,
   },
   logoutModalOverlay: {
     flex: 1,
@@ -1234,14 +1116,14 @@ const createStyles = colors => StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
   },
   profileHeaderTitle: {
     flex: 1,
     textAlign: 'center',
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
   },
   profileScroll: {
     flex: 1,
@@ -1261,7 +1143,7 @@ const createStyles = colors => StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 2,
     marginBottom: spacing.lg,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.03,
     shadowRadius: 4,
@@ -1314,7 +1196,7 @@ const createStyles = colors => StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: colors.card,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.2,
     shadowRadius: 3,
@@ -1425,7 +1307,7 @@ const createStyles = colors => StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
   },
   profileInputError: {
-    borderColor: '#EF4444',
+    borderColor: withAlpha(colors.error, 0.4),
   },
   profileInputBio: {
     minHeight: 90,
@@ -1481,7 +1363,7 @@ const createStyles = colors => StyleSheet.create({
   },
   profileSuccessText: {
     fontSize: fontSize.small,
-    color: '#10B981',
+    color: colors.success,
     fontWeight: fontWeight.semibold,
   },
   bioCharCount: {
@@ -1569,7 +1451,7 @@ const createStyles = colors => StyleSheet.create({
     elevation: 0,
   },
   profileSaveText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.medium,
     fontWeight: fontWeight.semibold,
   },

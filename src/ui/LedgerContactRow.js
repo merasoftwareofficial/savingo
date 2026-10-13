@@ -7,6 +7,7 @@ import {getChatStatusIndicator} from '../services/chatMessageStatus';
 
 const LedgerContactRow = ({
   item,
+  isFirst,
   isLast,
   styles,
   colors,
@@ -49,7 +50,7 @@ const LedgerContactRow = ({
       ? 'You will give'
       : 'Settled';
   const relativeTime = lastActivity ? formatRelativeTime(lastActivity.timestamp) : '';
-  const activityColor = lastActivity?.type === 'paid' ? '#EF4444' : '#10B981';
+  const activityColor = lastActivity?.type === 'paid' ? colors.error : colors.success;
   const chatIndicator = lastActivity?.kind === 'chat' && lastActivity.isOutgoing
     ? getChatStatusIndicator(lastActivity.deliveryStatus, colors.text.secondary)
     : null;
@@ -58,7 +59,11 @@ const LedgerContactRow = ({
     <TapEffect
       onPress={onPress}
       onLongPress={onLongPress}
-      style={[styles.contactItem, isLast && styles.lastContactItem]}>
+      style={[
+        styles.contactItem,
+        isFirst && styles.firstContactItem,
+        isLast && styles.lastContactItem,
+      ]}>
       <View style={styles.contactRow}>
         <View style={styles.avatarWrapper}>
           <View

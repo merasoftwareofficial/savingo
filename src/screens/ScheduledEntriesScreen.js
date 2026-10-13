@@ -11,6 +11,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 import {useToast} from '../hooks/useToast';
 import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
 import {
@@ -123,7 +124,7 @@ const ScheduledEntriesScreen = ({navigation, route}) => {
           <TouchableOpacity
             style={styles.deleteButton}
             onPress={() => handleDelete(item.id)}>
-            <Icon name="trash-outline" size={18} color="#EF4444" />
+            <Icon name="trash-outline" size={18} color={colors.error} />
           </TouchableOpacity>
         </View>
         <Text style={styles.amountText}>
@@ -242,7 +243,7 @@ const createStyles = (colors, insets) =>
       borderRadius: 17,
       alignItems: 'center',
       justifyContent: 'center',
-      backgroundColor: '#FEE2E2',
+      backgroundColor: withAlpha(colors.error, 0.1),
     },
     amountText: {
       fontSize: fontSize.xlarge,

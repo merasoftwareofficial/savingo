@@ -4,17 +4,19 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
+  Pressable,
   InteractionManager,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Icon from 'react-native-vector-icons/Ionicons';
 import {useTheme} from '../context/ThemeContext';
-import {spacing, fontSize, fontWeight} from '../utils/theme';
-import {withAlpha} from '../utils/headerTextureTheme';
+import {spacing, radius, typography} from '../utils/theme';
+import {withAlpha} from '../utils/color';
+import Card from '../components/ui/Card';
+import IconCircle from '../components/ui/IconCircle';
+import SectionHeader from '../components/ui/SectionHeader';
+import EmptyState from '../components/ui/EmptyState';
 import {useFocusEffect} from '@react-navigation/native';
 import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
-import {useResolvedHeaderTextureVariant} from '../hooks/useAdaptiveThemeAccent';
 import RecentTransactionsPreview from '../components/RecentTransactionsPreview';
 import {getRecentGlobalAddWithdrawEntries, getAllTransactions} from '../services/transactionsDatabase';
 import {getAllAccounts} from '../services/accountsDatabase';
@@ -67,11 +69,9 @@ const formatPeriodSummaryLabel = summary => {
 };
 
 const DashboardScreen = ({navigation}) => {
-  const {colors, isDark} = useTheme();
-  const styles = React.useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const {colors} = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const currencySymbol = useCurrencySymbol();
-  const themeAccent = useResolvedHeaderTextureVariant();
-  const activeTone = themeAccent?.accentSelection || themeAccent?.accentPrimary || colors.primary;
   const [recentEntries, setRecentEntries] = useState([]);
   const [accounts, setAccounts] = useState([]);
   const [quickPeriod, setQuickPeriod] = useState('10days');
@@ -273,7 +273,7 @@ const DashboardScreen = ({navigation}) => {
       }
       segments.push({
         key: `expense-${account.id}`,
-        color: account?.icon_color || '#EF4444',
+        color: account?.icon_color || colors.error,
         value,
       });
       return segments;
@@ -281,7 +281,7 @@ const DashboardScreen = ({navigation}) => {
     if (otherExpenses > 0) {
       expenseCutSegments.push({
         key: 'other-expenses',
-        color: '#EF4444',
+        color: colors.error,
         value: otherExpenses,
       });
     }
@@ -289,11 +289,11 @@ const DashboardScreen = ({navigation}) => {
     const savingsShown = Math.max(0, Number(savingCutAmount) || 0);
 
     return [
-      {key: 'earning-left', color: '#22C55E', value: balanceGreen},
+      {key: 'earning-left', color: colors.success, value: balanceGreen},
       ...expenseCutSegments,
-      {key: 'saving-cut', color: '#F59E0B', value: savingsShown},
+      {key: 'saving-cut', color: colors.warning, value: savingsShown},
     ].filter(segment => segment.value > 0);
-  }, [accounts, dashboardNetBalance, savingCutAmount]);
+  }, [accounts, dashboardNetBalance, savingCutAmount, colors]);
   const earningRemainingPercent = React.useMemo(() => {
     const balanceGreen = Number(
       donutSegments.find(segment => segment.key === 'earning-left')?.value || 0,
@@ -350,13 +350,6 @@ const DashboardScreen = ({navigation}) => {
 
   const periodButtonLabel = getPeriodButtonLabel();
   const isPeriodCalendarSelected = customStartDate || selectedMonth !== null;
-
-  const promoActions = [
-    {label: periodButtonLabel, icon: 'time-outline', variant: isPeriodCalendarSelected ? 'secondary' : 'primary', action: 'quickPeriod'},
-    {label: formatDateRange(customStartDate, customEndDate), icon: 'calendar-outline', variant: isPeriodCalendarSelected ? 'primary' : 'secondary', action: 'calendar'},
-    {label: 'Reports', icon: 'document-text-outline', variant: 'secondary', action: 'report'},
-    {label: 'History', icon: 'receipt-outline', variant: 'secondary', action: 'history'},
-  ];
 
   const handlePromoAction = useCallback(
     action => {
@@ -482,11 +475,49 @@ const DashboardScreen = ({navigation}) => {
     [navigation],
   );
 
-  return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+  const expensesBreakdown = React.useMemo(() => {
+    const expensesAccounts = accounts.filter(acc => acc.account_type === 'expenses');
+    const total = expensesAccounts.reduce(
+      (sum, acc) => sum + Math.abs(acc.periodExpenses || 0),
+      0,
+    );
+    if (total <= 0) {
+      return {total: 0, items: []};
+    }
+    return {
+      total,
+      items: expensesAccounts
+        .map(acc => {
+          const amount = Math.abs(acc.periodExpenses || 0);
+          return {
+            id: acc.id,
+            name: acc.account_name,
+            amount,
+            color: acc.icon_color || colors.text.light,
+            percentage: (amount / total) * 100,
+          };
+        })
+        .filter(item => item.amount > 0)
+        .sort((a, b) => b.amount - a.amount),
+    };
+  }, [accounts, colors.text.light]);
 
-      {/* Total Balance Card */}
-      <View style={styles.balanceCard}>
+  const quickActions = [
+    {key: 'quickPeriod', label: 'Period', icon: 'time-outline', active: !isPeriodCalendarSelected},
+    {key: 'calendar', label: 'Calendar', icon: 'calendar-outline', active: Boolean(isPeriodCalendarSelected)},
+    {key: 'report', label: 'Reports', icon: 'document-text-outline', active: false},
+    {key: 'history', label: 'History', icon: 'receipt-outline', active: false},
+  ];
+  const heroPeriodLabel = isPeriodCalendarSelected
+    ? formatDateRange(customStartDate, customEndDate)
+    : periodButtonLabel;
+
+  return (
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}>
+      <Card style={styles.heroCard}>
         <DashboardBalanceDonutCard
           balanceAmount={dashboardNetBalance}
           earningAmount={filteredEarning}
@@ -495,147 +526,128 @@ const DashboardScreen = ({navigation}) => {
           segments={donutSegments}
           formatAmount={formatCurrency}
           formatBalanceAmount={formatSignedCurrency}
+          periodLabel={heroPeriodLabel}
+          onPeriodPress={() =>
+            handlePromoAction(isPeriodCalendarSelected ? 'calendar' : 'quickPeriod')
+          }
         />
+      </Card>
 
-        {/* Horizontal Stacked Bar - Period Expenses Only */}
-        <View style={styles.dummyReportContainer}>
-          <Text style={styles.expensesBarLabel}>Expenses Bar</Text>
-          {(() => {
-            const expensesAccounts = accounts.filter(acc => acc.account_type === 'expenses');
-            const totalExpenses = expensesAccounts.reduce((sum, acc) => sum + Math.abs(acc.periodExpenses || 0), 0);
-
-            if (expensesAccounts.length === 0 || totalExpenses <= 0) {
-              return (
-                <View style={styles.noDataContainer}>
-                  <Text style={styles.noDataText}>No data available</Text>
-                </View>
-              );
-            }
-
-            const expensesData = expensesAccounts.map(acc => ({
-              id: acc.id,
-              name: acc.account_name,
-              amount: Math.abs(acc.periodExpenses || 0),
-              color: acc.icon_color || '#6B7280',
-              percentage: totalExpenses > 0 ? ((Math.abs(acc.periodExpenses || 0) / totalExpenses) * 100).toFixed(1) : 0,
-            }));
-
-            return (
-              <>
-                <View style={styles.stackedBar}>
-                  {expensesData.map((item) => (
-                    <View
-                      key={`expense-${item.id}`}
-                      style={[
-                        styles.stackedSegment,
-                        {
-                          flex: parseFloat(item.percentage),
-                          backgroundColor: item.color,
-                        },
-                      ]}
-                    />
-                  ))}
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  style={styles.legendScroll}
-                  scrollEventThrottle={16}>
-                  <View style={styles.legendRow}>
-                    {expensesData.map((item) => (
-                      <View key={item.id} style={styles.legendItem}>
-                        <View style={[styles.legendDot, {backgroundColor: item.color}]} />
-                        <Text style={styles.legendText}>{item.name} {formatCurrency(item.amount)}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </ScrollView>
-              </>
-            );
-          })()}
-        </View>
-
-        <View style={styles.promoActionGrid}>
-          {promoActions.map(action => (
-            <TouchableOpacity
-              key={action.label}
-              style={[
-                styles.promoActionButton,
-                action.variant === 'primary'
-                  ? {
-                      backgroundColor: isDark ? colors.surface : activeTone,
-                      borderColor: isDark ? colors.surface : activeTone,
-                    }
-                  : styles.promoActionSecondary,
-              ]}
-              onPress={() => handlePromoAction(action.action)}
-              activeOpacity={0.85}>
-              {action.icon && (
-                <Icon
-                  name={action.icon}
-                  size={20}
-                  color={action.variant === 'primary' ? colors.white : colors.text.primary}
-                  style={styles.promoActionIcon}
-                />
-              )}
-              <Text
-                style={[
-                  styles.promoActionText,
-                  action.variant === 'primary'
-                    ? styles.promoActionTextPrimary
-                    : styles.promoActionTextSecondary,
-                ]}>
-                {action.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+      <View style={styles.quickActions}>
+        {quickActions.map(action => (
+          <Pressable
+            key={action.key}
+            style={({pressed}) => [styles.quickAction, pressed && styles.pressed]}
+            onPress={() => handlePromoAction(action.key)}
+            accessibilityRole="button"
+            accessibilityLabel={action.label}>
+            <IconCircle
+              name={action.icon}
+              size={52}
+              iconSize={22}
+              color={action.active ? colors.onPrimary : colors.text.primary}
+              background={action.active ? colors.primary : colors.card}
+              style={!action.active && styles.quickActionIdle}
+            />
+            <Text style={styles.quickActionLabel} numberOfLines={1}>
+              {action.label}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
-      {/* Your Accounts */}
-      <Text style={styles.sectionTitle}>Your Accounts</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountsScroll}>
-        {accounts.map(account => {
-          const accountColor = String(account?.icon_color || '').trim() || activeTone;
-          return (
-          <TouchableOpacity
-            key={account.id}
-            style={[
-              styles.accountCard,
-              {
-                backgroundColor: accountColor,
-                borderColor: accountColor,
-              },
-            ]}
-            onPress={() => handleAccountBoxPress(account)}
-            activeOpacity={0.85}>
-            <View
-              style={[
-                styles.iconBox,
-                {
-                  backgroundColor: accountColor,
-                  borderColor: accountColor,
-                },
-              ]}>
-              {account.icon && (
-                <AccountIcon name={account.icon} size={20} color="#FFFFFF" />
-              )}
+      <SectionHeader title="Expenses by account" />
+      <Card style={styles.sectionCard}>
+        {expensesBreakdown.items.length === 0 ? (
+          <EmptyState
+            compact
+            icon="pie-chart-outline"
+            title="No expenses in this period"
+            message="Spending from your expense accounts will be split here."
+          />
+        ) : (
+          <>
+            <View style={styles.stackedBar}>
+              {expensesBreakdown.items.map(item => (
+                <View
+                  key={`expense-${item.id}`}
+                  style={[
+                    styles.stackedSegment,
+                    {flex: item.percentage, backgroundColor: item.color},
+                  ]}
+                />
+              ))}
             </View>
-            <Text style={styles.accountName}>{account.account_name}</Text>
-            <Text style={styles.accountBalance}>
-              {account.account_type === 'expenses'
-                ? formatCurrency(account.periodExpenses || 0)
-                : formatCurrency(account.balance || 0)}
-            </Text>
-            {account.periodLabel && (
-              <Text style={styles.periodLabel}>{account.periodLabel}</Text>
-            )}
-          </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+            {expensesBreakdown.items.map(item => (
+              <View key={item.id} style={styles.breakdownRow}>
+                <View style={[styles.breakdownDot, {backgroundColor: item.color}]} />
+                <Text style={styles.breakdownName} numberOfLines={1}>
+                  {item.name}
+                </Text>
+                <Text style={styles.breakdownPercent}>{`${item.percentage.toFixed(0)}%`}</Text>
+                <Text style={styles.breakdownAmount}>{formatCurrency(item.amount)}</Text>
+              </View>
+            ))}
+          </>
+        )}
+      </Card>
 
-      {/* Recent Transactions */}
+      <SectionHeader
+        title="Your accounts"
+        actionLabel={accounts.length > 0 ? 'See all' : undefined}
+        onAction={() => navigation.navigate('Accounts')}
+      />
+      {accounts.length === 0 ? (
+        <Card padded={false} style={styles.sectionCard}>
+          <EmptyState
+            compact
+            icon="wallet-outline"
+            title="No accounts yet"
+            message="Create your first account to start tracking."
+            actionLabel="Add account"
+            onAction={() => navigation.navigate('Accounts')}
+          />
+        </Card>
+      ) : (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.accountsScroll}
+          contentContainerStyle={styles.accountsScrollContent}>
+          {accounts.map(account => {
+            const accountColor =
+              String(account?.icon_color || '').trim() || colors.text.secondary;
+            return (
+              <Pressable
+                key={account.id}
+                style={({pressed}) => [styles.accountCard, pressed && styles.pressed]}
+                onPress={() => handleAccountBoxPress(account)}>
+                <IconCircle size={38} background={withAlpha(accountColor, 0.14)}>
+                  <AccountIcon
+                    name={account.icon || 'wallet-outline'}
+                    size={19}
+                    color={accountColor}
+                  />
+                </IconCircle>
+                <Text style={styles.accountName} numberOfLines={1}>
+                  {account.account_name}
+                </Text>
+                <Text style={styles.accountBalance} numberOfLines={1} adjustsFontSizeToFit>
+                  {account.account_type === 'expenses'
+                    ? formatCurrency(account.periodExpenses || 0)
+                    : formatCurrency(account.balance || 0)}
+                </Text>
+                {account.periodLabel ? (
+                  <Text style={styles.periodLabel} numberOfLines={1}>
+                    {account.periodLabel}
+                  </Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
+
       <RecentTransactionsPreview
         entries={recentEntries}
         formatCurrency={formatCurrency}
@@ -643,7 +655,6 @@ const DashboardScreen = ({navigation}) => {
         onPressFullHistory={openGlobalHistory}
       />
 
-      {/* Quick Period Sheet */}
       <DashboardQuickPeriodSheet
         visible={activeSheet === 'quick'}
         onClose={() => setActiveSheet(null)}
@@ -651,7 +662,6 @@ const DashboardScreen = ({navigation}) => {
         onSelect={handleQuickPeriodSelect}
       />
 
-      {/* Calendar Sheet */}
       <DashboardCalendarSheet
         visible={activeSheet === 'calendar'}
         onClose={() => setActiveSheet(null)}
@@ -660,224 +670,129 @@ const DashboardScreen = ({navigation}) => {
         accounts={accounts}
         customStartDate={customStartDate}
         customEndDate={customEndDate}
-        themeColor={themeAccent.accentPrimary}
-        accentPalette={themeAccent}
       />
 
-      {/* Report Sheet */}
       <DashboardReportSheet
         visible={activeSheet === 'report'}
         onClose={() => setActiveSheet(null)}
         accounts={accounts}
-        themeColor={themeAccent.accentPrimary}
-        accentPalette={themeAccent}
         formatCurrencyRupee={formatCurrency}
       />
     </ScrollView>
   );
 };
 
-const createStyles = (colors, isDark) =>
+const createStyles = colors =>
   StyleSheet.create({
     container: {
       flex: 1,
       backgroundColor: colors.background,
+    },
+    content: {
       padding: spacing.md,
+      paddingBottom: spacing.xl * 3,
     },
-    balanceCard: {
-      backgroundColor: isDark ? colors.panel : colors.surface,
-      borderRadius: 28,
-      padding: 18,
-      marginBottom: spacing.lg,
-      borderWidth: 1,
-      borderColor: isDark ? withAlpha(colors.white, 0.12) : colors.border,
-      shadowColor: colors.shadow,
-      shadowOffset: {width: 0, height: 10},
-      shadowOpacity: isDark ? 0.28 : 0.08,
-      shadowRadius: 18,
-      elevation: isDark ? 9 : 3,
+    heroCard: {
+      borderRadius: radius.xl,
+      padding: spacing.md + 4,
+      marginBottom: spacing.md + 4,
     },
-    balanceHeaderRow: {
+    quickActions: {
       flexDirection: 'row',
-      alignItems: 'flex-start',
       justifyContent: 'space-between',
-      marginBottom: 10,
-    },
-    balanceAmount: {
-      fontSize: 36,
-      lineHeight: 40,
-      fontWeight: fontWeight.bold,
-      color: isDark ? colors.white : colors.text.primary,
-      letterSpacing: 0.2,
-      marginTop: 4,
-    },
-    balanceEyebrow: {
-      fontSize: 13,
-      color: isDark ? colors.white : colors.text.primary,
-      fontWeight: fontWeight.medium,
-    },
-    balanceSubtitle: {
-      marginTop: 2,
-      marginBottom: 18,
-      fontSize: 13,
-      lineHeight: 18,
-      color: isDark ? withAlpha(colors.white, 0.92) : colors.text.secondary,
-      fontWeight: fontWeight.medium,
-      maxWidth: 240,
-    },
-    changeBadge: {
-      backgroundColor: isDark ? withAlpha(colors.white, 0.14) : withAlpha(colors.primary, 0.1),
-      borderWidth: 1,
-      borderColor: isDark ? withAlpha(colors.white, 0.16) : withAlpha(colors.primary, 0.14),
-      borderRadius: 16,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-    },
-    changeBadgeText: {
-      color: isDark ? colors.white : colors.primary,
-      fontSize: 14,
-      fontWeight: fontWeight.bold,
-    },
-    dummyReportContainer: {
       marginBottom: spacing.lg,
+      paddingHorizontal: spacing.xs,
     },
-    expensesBarLabel: {
-      fontSize: 12,
-      color: colors.text.secondary,
-      fontWeight: fontWeight.semibold,
-      letterSpacing: 0.5,
-      textTransform: 'uppercase',
-      marginBottom: 8,
-      paddingLeft: 2,
+    quickAction: {
+      alignItems: 'center',
+      width: '23%',
+    },
+    quickActionIdle: {
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    quickActionLabel: {
+      ...typography.caption,
+      fontWeight: '600',
+      color: colors.text.primary,
+      marginTop: 6,
+    },
+    pressed: {
+      opacity: 0.75,
+      transform: [{scale: 0.97}],
+    },
+    sectionCard: {
+      marginBottom: spacing.lg,
     },
     stackedBar: {
-      height: 32,
+      height: 12,
       flexDirection: 'row',
-      borderRadius: 8,
+      borderRadius: radius.pill,
       overflow: 'hidden',
+      gap: 2,
       marginBottom: spacing.sm,
-      shadowColor: colors.shadow,
-      shadowOffset: {width: 0, height: 2},
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 2,
     },
     stackedSegment: {
       height: '100%',
     },
-    legendScroll: {
-      maxHeight: 60,
-    },
-    legendRow: {
-      flexDirection: 'row',
-      gap: spacing.sm,
-      paddingRight: spacing.md,
-    },
-    legendItem: {
+    breakdownRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-      backgroundColor: isDark ? withAlpha(colors.white, 0.08) : withAlpha(colors.black, 0.04),
-      borderRadius: 6,
-      minWidth: 140,
-      justifyContent: 'center',
+      paddingVertical: spacing.sm,
     },
-    legendDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      flexShrink: 0,
+    breakdownDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      marginRight: spacing.sm + 2,
     },
-    legendText: {
-      fontSize: 11,
+    breakdownName: {
+      ...typography.label,
+      flex: 1,
       color: colors.text.primary,
-      fontWeight: fontWeight.medium,
     },
-    promoActionGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      justifyContent: 'space-between',
-    },
-    promoActionButton: {
-      width: '48%',
-      minHeight: 48,
-      borderRadius: 16,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderWidth: 1,
-      marginBottom: 10,
-      flexDirection: 'row',
-    },
-    promoActionPrimary: {
-      backgroundColor: isDark ? colors.surface : colors.primary,
-      borderColor: isDark ? colors.surface : colors.primary,
-    },
-    promoActionSecondary: {
-      backgroundColor: isDark ? withAlpha(colors.white, 0.12) : colors.surface,
-      borderColor: isDark ? withAlpha(colors.white, 0.18) : colors.border,
-    },
-    promoActionIcon: {
-      marginRight: spacing.xs,
-    },
-    promoActionText: {
-      fontSize: 14,
-      fontWeight: fontWeight.bold,
-      textAlign: 'center',
-    },
-    promoActionTextPrimary: {
-      color: isDark ? colors.primary : colors.white,
-    },
-    promoActionTextSecondary: {
-      color: isDark ? colors.white : colors.text.primary,
-    },
-    sectionTitle: {
-      fontSize: fontSize.small,
-      fontWeight: fontWeight.bold,
+    breakdownPercent: {
+      ...typography.caption,
       color: colors.text.secondary,
-      letterSpacing: 0.8,
-      textTransform: 'uppercase',
-      marginBottom: spacing.sm,
+      marginRight: spacing.sm + 4,
+    },
+    breakdownAmount: {
+      ...typography.label,
+      fontWeight: '700',
+      color: colors.text.primary,
     },
     accountsScroll: {
       marginHorizontal: -spacing.md,
-      paddingHorizontal: spacing.md,
       marginBottom: spacing.lg,
     },
+    accountsScrollContent: {
+      paddingHorizontal: spacing.md,
+      gap: spacing.sm + 2,
+    },
     accountCard: {
-      borderRadius: 16,
-      padding: spacing.md,
-      marginRight: spacing.sm,
-      width: 150,
-      justifyContent: 'space-between',
-      minHeight: 90,
+      width: 148,
+      minHeight: 124,
+      borderRadius: radius.lg,
+      padding: spacing.md - 2,
+      backgroundColor: colors.card,
       borderWidth: 1,
+      borderColor: colors.border,
+      justifyContent: 'space-between',
     },
     accountName: {
-      fontSize: fontSize.small,
-      color: '#FFFFFF',
-      fontWeight: fontWeight.medium,
-      marginBottom: 8,
+      ...typography.label,
+      color: colors.text.secondary,
+      marginTop: spacing.sm + 2,
     },
     accountBalance: {
-      fontSize: 18,
-      color: '#FFFFFF',
-      fontWeight: fontWeight.bold,
-    },
-    iconBox: {
-      width: 36,
-      height: 36,
-      borderRadius: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: spacing.xs,
-      borderWidth: 1,
+      ...typography.heading,
+      color: colors.text.primary,
+      marginTop: 2,
     },
     periodLabel: {
-      fontSize: 10,
-      color: 'rgba(255, 255, 255, 0.7)',
-      marginTop: spacing.xs,
+      ...typography.caption,
+      color: colors.text.light,
+      marginTop: 2,
     },
   });
 

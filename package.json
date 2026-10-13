@@ -3,8 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "android": "node --max-old-space-size=8192 ./node_modules/react-native/cli.js run-android",
-    "android:stable": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/android-dev-run.ps1",
+    "android": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/android-dev-run.ps1",
     "android:clean-start": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/android-dev-run.ps1 -ResetCache",
     "ios": "react-native run-ios",
     "lint": "eslint .",

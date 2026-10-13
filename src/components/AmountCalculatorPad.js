@@ -216,7 +216,7 @@ const AmountCalculatorPad = ({expression, preview, onKeyPress}) => {
                     size={22}
                     color={
                       isDeleteKey
-                        ? colors.white
+                        ? colors.onPrimary
                         : isSpecialAction
                         ? styles.operatorKeyText.color
                         : isAction

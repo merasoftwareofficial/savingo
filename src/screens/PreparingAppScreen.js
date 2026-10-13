@@ -259,7 +259,7 @@ const PreparingAppScreen = ({navigation, route}) => {
       borderColor: colors.border,
     },
     primaryButtonText: {
-      color: colors.white ?? '#FFFFFF',
+      color: colors.onPrimary,
       fontSize: 15,
       fontWeight: '700',
     },

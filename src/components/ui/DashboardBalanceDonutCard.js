@@ -1,17 +1,19 @@
 import React from 'react';
-import {View, Text, StyleSheet} from 'react-native';
+import {View, Text, StyleSheet, Pressable} from 'react-native';
 import Svg, {Circle} from 'react-native-svg';
+import Icon from 'react-native-vector-icons/Ionicons';
 import {useTheme} from '../../context/ThemeContext';
-import {fontWeight, spacing} from '../../utils/theme';
-import {withAlpha} from '../../utils/headerTextureTheme';
+import {radius, spacing, typography} from '../../utils/theme';
 import {getNetBalanceLabel} from '../../utils/dashboardNetBalance';
+import {useCountUp} from '../../hooks/useCountUp';
 
-const DONUT_SIZE = 132;
-const STROKE_WIDTH = 18;
+const DONUT_SIZE = 124;
+const STROKE_WIDTH = 14;
 const RADIUS = (DONUT_SIZE - STROKE_WIDTH) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const SEGMENT_GAP = 4;
 
+// Hero block of the dashboard: net balance + period chip, donut on the left, legend on the right.
 const DashboardBalanceDonutCard = ({
   balanceAmount = 0,
   earningAmount = 0,
@@ -20,11 +22,17 @@ const DashboardBalanceDonutCard = ({
   segments = [],
   formatAmount,
   formatBalanceAmount,
+  periodLabel,
+  onPeriodPress,
 }) => {
-  const {colors, isDark} = useTheme();
-  const styles = React.useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+  const {colors} = useTheme();
+  const styles = React.useMemo(() => createStyles(colors), [colors]);
   const resolvedBalanceAmount = Number(balanceAmount) || 0;
+  const animatedBalance = useCountUp(resolvedBalanceAmount);
   const resolvedBalanceLabel = getNetBalanceLabel(resolvedBalanceAmount);
+  const savingsAmount = Number(
+    (Array.isArray(segments) ? segments : []).find(segment => segment?.key === 'saving-cut')?.value || 0,
+  );
 
   const normalizedSegments = React.useMemo(() => {
     const safeSegments = Array.isArray(segments)
@@ -64,31 +72,63 @@ const DashboardBalanceDonutCard = ({
     return String(value);
   };
 
-  return (
-    <View style={styles.card}>
-      <Text
-        style={[
-          styles.balanceLabel,
-          resolvedBalanceAmount < 0 && styles.balanceLabelNegative,
-        ]}>
-        {resolvedBalanceLabel}
-      </Text>
-      <Text
-        style={[
-          styles.balanceAmount,
-          resolvedBalanceAmount < 0 && styles.balanceAmountNegative,
-        ]}>
-        {renderAmount(resolvedBalanceAmount, true)}
-      </Text>
+  const legend = [
+    {key: 'earning', label: 'Earning', color: colors.success, value: earningAmount},
+    {key: 'expenses', label: 'Expenses', color: colors.error, value: expenseAmount},
+    ...(savingsAmount > 0
+      ? [{key: 'savings', label: 'Savings', color: colors.warning, value: savingsAmount}]
+      : []),
+  ];
 
-      <View style={styles.donutWrap}>
-        <View style={styles.donutSurface}>
+  return (
+    <View>
+      <View style={styles.topRow}>
+        <View style={styles.balanceBlock}>
+          <Text
+            style={[
+              styles.balanceLabel,
+              resolvedBalanceAmount < 0 && styles.negative,
+            ]}>
+            {resolvedBalanceLabel}
+          </Text>
+          <Text
+            style={[
+              styles.balanceAmount,
+              resolvedBalanceAmount < 0 && styles.negative,
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit>
+            {renderAmount(
+              animatedBalance === resolvedBalanceAmount
+                ? resolvedBalanceAmount
+                : Math.round(animatedBalance),
+              true,
+            )}
+          </Text>
+        </View>
+        {periodLabel ? (
+          <Pressable
+            onPress={onPeriodPress}
+            style={({pressed}) => [styles.periodChip, pressed && styles.periodChipPressed]}
+            accessibilityRole="button"
+            accessibilityLabel={`Change period, ${periodLabel}`}>
+            <Icon name="time-outline" size={14} color={colors.text.secondary} />
+            <Text style={styles.periodChipText} numberOfLines={1}>
+              {periodLabel}
+            </Text>
+            <Icon name="chevron-down" size={14} color={colors.text.secondary} />
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.bodyRow}>
+        <View style={styles.donutWrap}>
           <Svg width={DONUT_SIZE} height={DONUT_SIZE}>
             <Circle
               cx={DONUT_SIZE / 2}
               cy={DONUT_SIZE / 2}
               r={RADIUS}
-              stroke={isDark ? withAlpha(colors.white, 0.14) : withAlpha(colors.black, 0.08)}
+              stroke={colors.surfaceMuted}
               strokeWidth={STROKE_WIDTH}
               fill="none"
             />
@@ -109,123 +149,122 @@ const DashboardBalanceDonutCard = ({
               />
             ))}
           </Svg>
-          <View style={styles.donutInner}>
-            <Text style={styles.donutInnerLabel}>
+          <View style={styles.donutCenter} pointerEvents="none">
+            <Text style={styles.donutPercent}>
               {`${Math.max(0, Math.round(Number(earningRemainingPercent) || 0))}%`}
             </Text>
+            <Text style={styles.donutCaption}>left</Text>
           </View>
         </View>
-      </View>
 
-      <View style={styles.footerRow}>
-        <View style={styles.metricBlock}>
-          <Text style={styles.earningLabel}>Earning</Text>
-          <Text style={styles.metricAmount}>{renderAmount(earningAmount)}</Text>
-        </View>
-        <View style={styles.metricBlockRight}>
-          <Text style={styles.expenseLabel}>Expenses</Text>
-          <Text style={styles.metricAmount}>{renderAmount(expenseAmount)}</Text>
+        <View style={styles.legend}>
+          {legend.map(item => (
+            <View key={item.key} style={styles.legendRow}>
+              <View style={[styles.legendDot, {backgroundColor: item.color}]} />
+              <View style={styles.legendText}>
+                <Text style={styles.legendLabel}>{item.label}</Text>
+                <Text style={styles.legendValue} numberOfLines={1} adjustsFontSizeToFit>
+                  {renderAmount(item.value)}
+                </Text>
+              </View>
+            </View>
+          ))}
         </View>
       </View>
     </View>
   );
 };
 
-const createStyles = (colors, isDark) =>
+const createStyles = colors =>
   StyleSheet.create({
-    card: {
-      marginBottom: spacing.lg,
-      paddingVertical: spacing.md,
-      paddingHorizontal: spacing.sm,
-      borderRadius: 24,
-      backgroundColor: isDark ? withAlpha(colors.white, 0.04) : withAlpha(colors.black, 0.025),
-      borderWidth: 1,
-      borderColor: isDark ? withAlpha(colors.white, 0.08) : withAlpha(colors.black, 0.05),
-    },
-    balanceLabel: {
-      textAlign: 'center',
-      fontSize: 12,
-      color: colors.text.secondary,
-      fontWeight: fontWeight.semibold,
-      letterSpacing: 0.4,
-      textTransform: 'uppercase',
-      marginBottom: 4,
-    },
-    balanceLabelNegative: {
-      color: colors.error,
-    },
-    balanceAmount: {
-      textAlign: 'center',
-      fontSize: 28,
-      color: colors.text.primary,
-      fontWeight: fontWeight.bold,
-      marginBottom: spacing.md,
-    },
-    balanceAmountNegative: {
-      color: colors.error,
-    },
-    donutWrap: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: spacing.md,
-    },
-    donutSurface: {
-      width: DONUT_SIZE + 16,
-      height: DONUT_SIZE + 16,
-      borderRadius: (DONUT_SIZE + 16) / 2,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: isDark ? withAlpha(colors.white, 0.03) : withAlpha(colors.black, 0.03),
-      borderWidth: 1,
-      borderColor: isDark ? withAlpha(colors.white, 0.07) : withAlpha(colors.black, 0.06),
-    },
-    donutInner: {
-      position: 'absolute',
-      width: 64,
-      height: 64,
-      borderRadius: 32,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: isDark ? colors.panel : colors.surface,
-      borderWidth: 1,
-      borderColor: isDark ? withAlpha(colors.white, 0.08) : withAlpha(colors.black, 0.08),
-    },
-    donutInnerLabel: {
-      fontSize: 18,
-      color: colors.text.secondary,
-      fontWeight: fontWeight.semibold,
-    },
-    footerRow: {
+    topRow: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       justifyContent: 'space-between',
-      gap: spacing.md,
-      paddingHorizontal: spacing.xs,
+      gap: spacing.sm,
     },
-    metricBlock: {
+    balanceBlock: {
       flex: 1,
-      alignItems: 'flex-start',
     },
-    metricBlockRight: {
-      flex: 1,
-      alignItems: 'flex-end',
+    balanceLabel: {
+      ...typography.overline,
+      color: colors.text.secondary,
     },
-    earningLabel: {
-      fontSize: 12,
-      color: '#16A34A',
-      fontWeight: fontWeight.semibold,
-      marginBottom: 4,
-    },
-    expenseLabel: {
-      fontSize: 12,
-      color: '#EF4444',
-      fontWeight: fontWeight.semibold,
-      marginBottom: 4,
-    },
-    metricAmount: {
-      fontSize: 18,
+    balanceAmount: {
+      ...typography.display,
       color: colors.text.primary,
-      fontWeight: fontWeight.bold,
+      marginTop: 4,
+    },
+    negative: {
+      color: colors.error,
+    },
+    periodChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceMuted,
+      maxWidth: 150,
+    },
+    periodChipPressed: {
+      opacity: 0.7,
+    },
+    periodChipText: {
+      ...typography.caption,
+      fontWeight: '600',
+      color: colors.text.primary,
+      flexShrink: 1,
+    },
+    bodyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginTop: spacing.md + 4,
+      gap: spacing.lg,
+    },
+    donutWrap: {
+      width: DONUT_SIZE,
+      height: DONUT_SIZE,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    donutCenter: {
+      position: 'absolute',
+      alignItems: 'center',
+    },
+    donutPercent: {
+      ...typography.heading,
+      color: colors.text.primary,
+    },
+    donutCaption: {
+      ...typography.caption,
+      color: colors.text.secondary,
+    },
+    legend: {
+      flex: 1,
+      gap: spacing.md,
+    },
+    legendRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    legendDot: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      marginRight: spacing.sm + 2,
+    },
+    legendText: {
+      flex: 1,
+    },
+    legendLabel: {
+      ...typography.caption,
+      color: colors.text.secondary,
+    },
+    legendValue: {
+      ...typography.bodyStrong,
+      color: colors.text.primary,
     },
   });
 

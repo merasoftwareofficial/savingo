@@ -15,7 +15,11 @@ import {
 import Icon from 'react-native-vector-icons/Ionicons';
 import MaterialIcon from 'react-native-vector-icons/MaterialIcons'; // For push-pin icon
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {spacing, fontSize, fontWeight} from '../utils/theme';
+import {spacing, fontSize, fontWeight, radius, typography} from '../utils/theme';
+import Card from '../components/ui/Card';
+import EmptyState from '../components/ui/EmptyState';
+import SectionHeader from '../components/ui/SectionHeader';
+import Skeleton from '../components/ui/Skeleton';
 import {useToast} from '../hooks/useToast';
 import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
 import {queueBackupFromStorage} from '../utils/backupQueue';
@@ -88,7 +92,7 @@ const formatRelativeTime = ts => {
 };
 
 const LedgerScreen = ({navigation}) => {
-  const {colors, isDark} = useTheme();
+  const {colors} = useTheme();
   const {showAlert} = useAppAlert();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
   const themedAlert = useCallback(
@@ -958,6 +962,7 @@ const LedgerScreen = ({navigation}) => {
     return (
       <LedgerContactRow
         item={item}
+        isFirst={index === 0}
         isLast={index === contacts.length - 1}
         styles={styles}
         colors={colors}
@@ -1051,9 +1056,7 @@ const LedgerScreen = ({navigation}) => {
 
   const renderLedgerListHeader = useCallback(
     () => (
-      <View style={styles.listHeaderSection}>
-        <Text style={styles.sectionTitle}>Contacts</Text>
-      </View>
+      <SectionHeader title="Contacts" style={styles.listHeaderSection} />
     ),
     [styles],
   );
@@ -1062,42 +1065,40 @@ const LedgerScreen = ({navigation}) => {
     if (!contactsHydrated) {
       return (
         <View style={styles.listEmptySection}>
-          <View style={styles.loadingContainer}>
+          <Card padded={false}>
             {[0, 1, 2].map(item => (
-              <View
-                key={`ledger-loading-${item}`}
-                style={[
-                  styles.loadingRow,
-                  item === 2 ? styles.loadingRowLast : null,
-                ]}>
-                <View style={styles.loadingAvatar} />
+              <View key={`ledger-loading-${item}`} style={styles.loadingRow}>
+                <Skeleton width={46} height={46} radius={23} />
                 <View style={styles.loadingContent}>
-                  <View style={styles.loadingLinePrimary} />
-                  <View style={styles.loadingLineSecondary} />
+                  <Skeleton width="55%" height={14} />
+                  <Skeleton width="35%" height={10} style={styles.loadingGap} />
                 </View>
+                <Skeleton width={56} height={14} />
               </View>
             ))}
-          </View>
+          </Card>
         </View>
       );
     }
 
     return (
       <View style={styles.listEmptySection}>
-        <View style={styles.emptyContainer}>
-          <Icon name="people-outline" size={48} color={colors.text.light} />
-          <Text style={styles.emptyText}>No contacts in ledger</Text>
-          <Text style={styles.emptySubtext}>Tap the add button to get started</Text>
-        </View>
+        <Card padded={false}>
+          <EmptyState
+            icon="people-outline"
+            title="No contacts yet"
+            message="Add a contact to track money you give and get."
+            actionLabel="Add contact"
+            onAction={handleAddContactFabPress}
+          />
+        </Card>
       </View>
     );
-  }, [contactsHydrated, colors.text.light, styles]);
+  }, [contactsHydrated, handleAddContactFabPress, styles]);
 
   return (
     <View style={styles.container}>
       <LedgerSummaryHeader
-        styles={styles}
-        isDark={isDark}
         overallBalance={overallBalance}
         formatCurrency={formatCurrency}
         formatSignedBalance={formatSignedBalance}
@@ -1126,7 +1127,7 @@ const LedgerScreen = ({navigation}) => {
       <TapEffect
         onPress={handleAddContactFabPress}
         style={styles.fab}>
-        <Icon name="person-add" size={22} color={colors.white} />
+        <Icon name="person-add" size={22} color={colors.onPrimary} />
       </TapEffect>
 
       <SetupRequirePopup
@@ -1192,8 +1193,8 @@ const LedgerScreen = ({navigation}) => {
             <TouchableOpacity
               style={styles.contextMenuItem}
               onPress={handleDeleteContact}>
-              <Icon name="trash-outline" size={22} color="#EF4444" />
-              <Text style={[styles.contextMenuItemText, {color: '#EF4444'}]}>
+              <Icon name="trash-outline" size={22} color={colors.error} />
+              <Text style={[styles.contextMenuItemText, {color: colors.error}]}>
                 Delete
               </Text>
             </TouchableOpacity>
@@ -1249,108 +1250,49 @@ const LedgerScreen = ({navigation}) => {
   );
 };
 
-const createCardBase = colors => ({
-  backgroundColor: colors.card,
-  borderRadius: 12,
-  borderWidth: 1,
-  borderColor: colors.border,
-  elevation: 1,
-  shadowColor: colors.shadow,
-  shadowOffset: {width: 0, height: 1},
-  shadowOpacity: 0.05,
-  shadowRadius: 2,
-});
-
 const createStyles = colors => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
   },
-  headerBlock: {
-    backgroundColor: colors.card,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    elevation: 2,
-  },
-  headerRow: {
-    height: 0,
-    marginBottom: 0,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-  },
-  metricColumn: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  metricDivider: {
-    width: 1,
-    height: 44,
-    backgroundColor: colors.border,
-    marginHorizontal: spacing.sm,
-  },
-  metricLabelRow: {
-    marginBottom: 4,
-  },
-  metricLabel: {
-    fontSize: 13,
-    color: colors.text.secondary,
-    fontWeight: fontWeight.bold,
-  },
-  metricLabelDark: {
-    color: colors.text.secondary,
-  },
-  metricValue: {
-    fontSize: fontSize.large,
-    fontWeight: fontWeight.bold,
-  },
-  metricPositive: {
-    color: '#10B981',
-  },
-  metricNegative: {
-    color: '#EF4444',
-  },
   listArea: {
     flex: 1,
     padding: 0,
   },
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: fontWeight.semibold,
-    color: colors.text.secondary,
-  },
   listHeaderSection: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: 8,
+    marginTop: spacing.md,
   },
   listEmptySection: {
-    paddingHorizontal: spacing.md,
     paddingBottom: spacing.lg,
   },
   contactsListWrapper: {
-    ...createCardBase(colors),
     flex: 1,
-    overflow: 'hidden',
-    marginTop: spacing.sm,
-    marginHorizontal: spacing.sm,
   },
   contactsListContentContainer: {
+    paddingHorizontal: spacing.md,
     paddingBottom: spacing.xl + 88,
   },
   rowPressed: {
     backgroundColor: colors.surfaceMuted,
   },
   contactItem: {
-    padding: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: colors.card,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
+  },
+  firstContactItem: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
   },
   lastContactItem: {
-    borderBottomWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: radius.lg,
+    borderBottomRightRadius: radius.lg,
   },
   contactRow: {
     flexDirection: 'row',
@@ -1362,9 +1304,9 @@ const createStyles = colors => StyleSheet.create({
     marginRight: 2,
   },
   contactAvatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1383,7 +1325,7 @@ const createStyles = colors => StyleSheet.create({
     borderRadius: 26,
   },
   contactAvatarText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: fontSize.large,
     fontWeight: fontWeight.bold,
   },
@@ -1400,10 +1342,9 @@ const createStyles = colors => StyleSheet.create({
     minWidth: 0,
   },
   contactName: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
+    ...typography.bodyStrong,
     color: colors.text.primary,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   contactNameNoMargin: {
     marginBottom: 1,
@@ -1430,7 +1371,7 @@ const createStyles = colors => StyleSheet.create({
     borderColor: colors.background,
   },
   chatUnreadBadgeText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 11,
     fontWeight: fontWeight.bold,
   },
@@ -1468,68 +1409,26 @@ const createStyles = colors => StyleSheet.create({
     opacity: 0.7,
   },
   balance_positive: {
-    color: '#10B981',
+    color: colors.success,
   },
   balance_negative: {
-    color: '#EF4444',
+    color: colors.error,
   },
   balance_neutral: {
     color: colors.text.secondary,
   },
-  loadingContainer: {
-    ...createCardBase(colors),
-    overflow: 'hidden',
-  },
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    padding: spacing.md,
     gap: 12,
   },
-  loadingRowLast: {
-    borderBottomWidth: 0,
-  },
-  loadingAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: colors.surfaceMuted,
+  loadingGap: {
+    marginTop: 6,
   },
   loadingContent: {
     flex: 1,
     gap: 8,
-  },
-  loadingLinePrimary: {
-    width: '62%',
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: colors.surfaceMuted,
-  },
-  loadingLineSecondary: {
-    width: '40%',
-    height: 10,
-    borderRadius: 6,
-    backgroundColor: colors.surfaceMuted,
-  },
-  emptyContainer: {
-    ...createCardBase(colors),
-    padding: spacing.xl,
-    alignItems: 'center',
-  },
-  emptyText: {
-    fontSize: 16,
-    fontWeight: fontWeight.semibold,
-    color: colors.text.primary,
-    marginTop: 12,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    color: colors.text.secondary,
-    marginTop: 4,
-    textAlign: 'center',
   },
   fabPressed: {
     transform: [{scale: 0.98}],
@@ -1541,7 +1440,7 @@ const createStyles = colors => StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(15, 118, 110, 0.78)',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 6,
@@ -1665,16 +1564,7 @@ const createStyles = colors => StyleSheet.create({
   renameModalButtonText: {
     fontSize: fontSize.medium,
     fontWeight: fontWeight.bold,
-    color: colors.white,
-  },
-  // Overriding button text color for cancel
-  renameModalCancelButton: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  renameModalButtonText: {
-    fontSize: fontSize.medium,
-    fontWeight: fontWeight.bold,
-    color: colors.white,
+    color: colors.onPrimary,
   },
   renameModalCancelButtonText: {
     fontSize: fontSize.medium,

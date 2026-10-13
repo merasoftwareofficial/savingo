@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {GoogleSignin} from '@react-native-google-signin/google-signin';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
 import ToggleSwitch from '../components/ui/ToggleSwitch';
 import PageHeader from '../components/ui/PageHeader';
 import {
@@ -85,14 +85,6 @@ const BackupScreen = ({navigation}) => {
   const progressAnim = useRef(new Animated.Value(0)).current;
   const progressTimerRef = useRef(null);
   const recentBackupsLoadRef = useRef(null);
-  const backupToggleTrackColor = React.useMemo(
-    () => ({false: '#D1D5DB', true: '#86EFAC'}),
-    [],
-  );
-  const backupToggleThumbColor = React.useCallback(
-    enabled => (enabled ? '#16A34A' : '#F9FAFB'),
-    [],
-  );
 
   const loadSettings = async () => {
     const storedEmail = await AsyncStorage.getItem('backup.accountEmail');
@@ -462,8 +454,6 @@ const BackupScreen = ({navigation}) => {
             <ToggleSwitch
               value={backupEnabled}
               onValueChange={handleToggleBackup}
-              trackColor={backupToggleTrackColor}
-              thumbColor={backupToggleThumbColor(backupEnabled)}
               disabled={backupLocked}
             />
           </View>
@@ -474,8 +464,6 @@ const BackupScreen = ({navigation}) => {
             <ToggleSwitch
               value={includeReceipts}
               onValueChange={handleToggleReceipts}
-              trackColor={backupToggleTrackColor}
-              thumbColor={backupToggleThumbColor(includeReceipts)}
               disabled={backupLocked}
             />
           </View>
@@ -531,7 +519,7 @@ const BackupScreen = ({navigation}) => {
             onPress={handleBackupNow}
             disabled={busy || backupLocked}>
             {busy ? (
-              <ActivityIndicator color={colors.white} />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <Text style={styles.primaryText}>Back up now</Text>
             )}
@@ -567,7 +555,7 @@ const createStyles = colors => StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
   },
   backButton: {
     padding: 6,
@@ -577,7 +565,7 @@ const createStyles = colors => StyleSheet.create({
     textAlign: 'center',
     fontSize: fontSize.large,
     fontWeight: fontWeight.semibold,
-    color: headerTexture.title,
+    color: colors.headerText,
   },
   headerSpacer: {
     width: 34,
@@ -688,7 +676,7 @@ const createStyles = colors => StyleSheet.create({
     borderColor: colors.primary,
   },
   primaryText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontWeight: fontWeight.semibold,
   },
   secondaryButton: {
@@ -705,7 +693,7 @@ const createStyles = colors => StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   savedText: {
-    color: '#16A34A',
+    color: colors.success,
     fontSize: fontSize.small,
     fontWeight: fontWeight.semibold,
   },
@@ -713,11 +701,11 @@ const createStyles = colors => StyleSheet.create({
     marginTop: spacing.sm,
     paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 8,
   },
   debugText: {
-    color: '#666',
+    color: colors.text.secondary,
     fontWeight: fontWeight.semibold,
     fontSize: fontSize.small,
   },

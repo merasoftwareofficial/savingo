@@ -1,8 +1,9 @@
 import React from 'react';
-import {Text, TouchableOpacity, StyleSheet} from 'react-native';
+import {View, StyleSheet} from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import BottomSheet from './BottomSheet';
-import {spacing, fontSize, fontWeight} from '../utils/theme';
+import {spacing, radius} from '../utils/theme';
+import ListRow from './ui/ListRow';
 import {useTheme} from '../context/ThemeContext';
 
 export const QUICK_PERIODS = [
@@ -20,65 +21,40 @@ const DashboardQuickPeriodSheet = ({visible, onClose, quickPeriod, onSelect}) =>
   const {colors} = useTheme();
   const styles = React.useMemo(() => createStyles(colors), [colors]);
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
-      <Text style={styles.title}>Select Period</Text>
-      {QUICK_PERIODS.map(period => (
-        <TouchableOpacity
-          key={period.value}
-          style={[
-            styles.option,
-            quickPeriod === period.value && styles.optionActive,
-          ]}
-          onPress={() => {
-            onSelect(period.value);
-            onClose();
-          }}
-          activeOpacity={0.6}>
-          <Text
-            style={[
-              styles.optionText,
-              quickPeriod === period.value && styles.optionTextActive,
-            ]}>
-            {period.label}
-          </Text>
-          {quickPeriod === period.value && (
-            <Icon name="checkmark" size={18} color={colors.primary} />
-          )}
-        </TouchableOpacity>
-      ))}
+    <BottomSheet visible={visible} onClose={onClose} title="Select period">
+      <View style={styles.list}>
+        {QUICK_PERIODS.map((period, index) => {
+          const isActive = quickPeriod === period.value;
+          return (
+            <ListRow
+              key={period.value}
+              title={period.label}
+              divider={index < QUICK_PERIODS.length - 1}
+              onPress={() => {
+                onSelect(period.value);
+                onClose();
+              }}
+              trailing={
+                <Icon
+                  name={isActive ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={22}
+                  color={isActive ? colors.primary : colors.text.light}
+                />
+              }
+            />
+          );
+        })}
+      </View>
     </BottomSheet>
   );
 };
 
 const createStyles = colors => StyleSheet.create({
-  title: {
-    fontSize: fontSize.large,
-    fontWeight: fontWeight.bold,
-    color: colors.text.primary,
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.xs,
-  },
-  option: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  optionActive: {
+  list: {
+    marginHorizontal: spacing.md,
+    borderRadius: radius.lg,
     backgroundColor: colors.surfaceMuted,
-  },
-  optionText: {
-    fontSize: fontSize.medium,
-    color: colors.text.primary,
-    fontWeight: fontWeight.medium,
-  },
-  optionTextActive: {
-    color: colors.primary,
-    fontWeight: fontWeight.bold,
+    overflow: 'hidden',
   },
 });
 

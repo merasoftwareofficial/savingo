@@ -16,15 +16,14 @@ import DashboardPeriodFilter from '../components/DashboardPeriodFilter';
 import TransactionTypeFilterBar from '../components/TransactionTypeFilterBar';
 import useTransactionHistoryController from '../hooks/useTransactionHistoryController';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 import {useCurrencySymbol} from '../hooks/useCurrencySymbol';
 import {parseEditHistory} from '../services/transactionEditHistory';
 import AccountTransactionRow from '../ui/AccountTransactionRow';
 import {
-  deletedUiStyles,
   getDeletedTapEffectProps,
-  renderDeletedBadge,
-  renderDeletedNote,
   withDeletedStyle,
+  useDeletedUi,
 } from '../components/ui/deleteui';
 import {
   isTransferOrRequestTransaction,
@@ -65,7 +64,8 @@ const formatTimeLabel = timestamp => {
 
 const TransactionHistoryScreen = ({route, navigation}) => {
   const insets = useSafeAreaInsets();
-  const {colors, isDark} = useTheme();
+  const {colors} = useTheme();
+  const {deletedUiStyles, renderDeletedBadge, renderDeletedNote} = useDeletedUi();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const currencySymbol = useCurrencySymbol();
   const [previewUri, setPreviewUri] = useState('');
@@ -131,7 +131,6 @@ const TransactionHistoryScreen = ({route, navigation}) => {
       <AccountTransactionRow
         item={item}
         styles={styles}
-        isDark={isDark}
         themeColors={colors}
         formatCurrency={formatCurrency}
         formatDateLabel={formatDateLabel}
@@ -149,7 +148,15 @@ const TransactionHistoryScreen = ({route, navigation}) => {
         openReceiptPreview={uri => setPreviewUri(normalizeImageUri(uri))}
       />
     ),
-    [styles, isDark, colors, formatCurrency, formatEditHistoryValue],
+    [
+      styles,
+      colors,
+      deletedUiStyles,
+      renderDeletedBadge,
+      renderDeletedNote,
+      formatCurrency,
+      formatEditHistoryValue,
+    ],
   );
 
   if (!account?.id) {
@@ -189,13 +196,11 @@ const TransactionHistoryScreen = ({route, navigation}) => {
         filteredWithdrawals={periodTotals.withdrawals}
         netBalance={periodTotals.net}
         formatCurrencyRupee={formatCurrency}
-        themeColor={account.icon_color || colors.primary}
       />
 
       <TransactionTypeFilterBar
         value={historyFilterType}
         onChange={setHistoryFilterType}
-        themeColor={account.icon_color || colors.primary}
       />
 
       <View style={styles.transferToggleWrap}>
@@ -394,27 +399,27 @@ const createStyles = colors =>
       width: 28,
       height: 28,
       borderRadius: 14,
-      backgroundColor: '#D1FAE5',
+      backgroundColor: withAlpha(colors.success, 0.14),
       alignItems: 'center',
       justifyContent: 'center',
     },
     chatIconDebit: {
-      backgroundColor: '#FEE2E2',
+      backgroundColor: withAlpha(colors.error, 0.1),
     },
     chatIconTransfer: {
-      backgroundColor: 'rgba(59, 130, 246, 0.16)',
+      backgroundColor: colors.primarySoft,
     },
     chatAmount: {
       fontSize: fontSize.large,
       fontWeight: fontWeight.bold,
-      color: '#10B981',
+      color: colors.success,
       flex: 1,
     },
     chatAmountDebit: {
-      color: '#EF4444',
+      color: colors.error,
     },
     chatAmountTransfer: {
-      color: '#3B82F6',
+      color: colors.text.primary,
     },
     chatRemark: {
       fontSize: fontSize.medium,

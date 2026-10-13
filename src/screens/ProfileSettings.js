@@ -24,6 +24,7 @@ import {auth} from '../config/firebase';
 import {GoogleSignin} from '@react-native-google-signin/google-signin';
 import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
+import {withAlpha} from '../utils/color';
 import {useSessionUser} from '../context/SessionUserContext';
 import {useToast} from '../hooks/useToast';
 import {
@@ -674,7 +675,7 @@ const ProfileSettings = ({navigation, route}) => {
                   />
                 ) : (
                   <View style={styles.profileIdentityPlaceholder}>
-                    <Icon name="person" size={38} color={colors.white} />
+                    <Icon name="person" size={38} color={colors.text.secondary} />
                   </View>
                 )}
               </TouchableOpacity>
@@ -682,7 +683,7 @@ const ProfileSettings = ({navigation, route}) => {
                 style={styles.profileIdentityCameraBadge}
                 onPress={handlePickImage}
                 accessibilityLabel="Change profile photo">
-                <Icon name="camera" size={13} color={colors.white} />
+                <Icon name="camera" size={13} color={colors.onPrimary} />
               </TouchableOpacity>
             </View>
             <Text style={styles.profileIdentityHintText}>Tap to change on Google</Text>
@@ -1134,7 +1135,7 @@ const createStyles = colors =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm + 2,
       marginBottom: spacing.lg,
-      shadowColor: '#000',
+      shadowColor: colors.shadow,
       shadowOffset: {width: 0, height: 1},
       shadowOpacity: 0.03,
       shadowRadius: 4,
@@ -1187,7 +1188,7 @@ const createStyles = colors =>
       justifyContent: 'center',
       borderWidth: 2,
       borderColor: colors.card,
-      shadowColor: '#000',
+      shadowColor: colors.shadow,
       shadowOffset: {width: 0, height: 2},
       shadowOpacity: 0.2,
       shadowRadius: 3,
@@ -1254,7 +1255,7 @@ const createStyles = colors =>
       textAlignVertical: 'top',
     },
     inputError: {
-      borderColor: '#EF4444',
+      borderColor: withAlpha(colors.error, 0.4),
     },
     hybridField: {
       backgroundColor: colors.input,
@@ -1342,7 +1343,7 @@ const createStyles = colors =>
     },
     successText: {
       fontSize: fontSize.small,
-      color: '#10B981',
+      color: colors.success,
       fontWeight: fontWeight.semibold,
     },
     errorText: {
@@ -1412,7 +1413,7 @@ const createStyles = colors =>
       elevation: 0,
     },
     saveButtonText: {
-      color: colors.white,
+      color: colors.onPrimary,
       fontSize: fontSize.medium,
       fontWeight: fontWeight.semibold,
     },
@@ -1504,7 +1505,7 @@ const createStyles = colors =>
     },
     manualEditorBtnPrimaryText: {
       fontSize: 15,
-      color: colors.white,
+      color: colors.onPrimary,
       fontWeight: fontWeight.semibold,
     },
     modalOverlay: {

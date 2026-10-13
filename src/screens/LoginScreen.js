@@ -216,7 +216,7 @@ const LoginScreen = ({ navigation }) => {
             onPress={handleGoogleSignIn}
             disabled={loading}>
             {loading ? (
-              <ActivityIndicator color={colors.white} />
+              <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <Text style={styles.googleButtonText}>Continue with Google</Text>
             )}
@@ -281,7 +281,7 @@ const createStyles = colors =>
     opacity: 0.6,
   },
   buttonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -307,7 +307,7 @@ const createStyles = colors =>
     alignItems: 'center',
   },
   googleButtonText: {
-    color: colors.white,
+    color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '600',
   },

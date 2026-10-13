@@ -14,7 +14,7 @@ import Icon from 'react-native-vector-icons/Ionicons';
 import BsCashCoin from '../components/icons/BsCashCoin';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import TexturedSurface from '../components/TexturedSurface';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
 import {getAllAccounts, updateAccountPersonalization, updateCreditLimit} from '../services/accountsDatabase';
 import {publishAccountsChanged} from '../services/accountsChangeBus';
@@ -228,12 +228,12 @@ const PersonalizeAccountScreen = ({navigation, route}) => {
       paddingVertical: spacing.sm,
       backgroundColor: colors.headerBg,
       borderBottomWidth: 1,
-      borderBottomColor: headerTexture.border,
+      borderBottomColor: colors.headerBorder,
       elevation: 2,
     },
     headerTopRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 64},
     backButton: {padding: 6},
-    headerTitle: {flex: 1, textAlign: 'center', fontSize: fontSize.large, fontWeight: fontWeight.semibold, color: headerTexture.title},
+    headerTitle: {flex: 1, textAlign: 'center', fontSize: fontSize.large, fontWeight: fontWeight.semibold, color: colors.headerText},
     headerSpacer: {width: 34},
 
     animatedContainer: {flex: 1},
@@ -323,7 +323,7 @@ const PersonalizeAccountScreen = ({navigation, route}) => {
       <TexturedSurface style={[styles.header, {paddingTop: spacing.sm + insets.top}]}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} activeOpacity={0.7}>
-            <Icon name="chevron-back" size={22} color={headerTexture.icon} />
+            <Icon name="chevron-back" size={22} color={colors.headerIcon} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Personalize Account</Text>
           <View style={styles.headerSpacer} />

@@ -20,7 +20,7 @@ import {
   isAccountNameExists,
 } from '../services/accountsDatabase';
 import {publishAccountsChanged} from '../services/accountsChangeBus';
-import {spacing, fontSize, fontWeight, headerTexture} from '../utils/theme';
+import {spacing, fontSize, fontWeight} from '../utils/theme';
 import {useTheme} from '../context/ThemeContext';
 import {useAppAlert} from '../context/AppAlertContext';
 import {
@@ -145,10 +145,6 @@ const AddAccountScreen = ({navigation, route}) => {
   };
 
   const QUICK_LIMIT_OPTIONS = [5000, 10000, 25000, 50000, 100000, 150000, 200000, 300000, 500000, 1000000];
-
-  const handleSliderLayout = (event) => {
-    sliderWidthRef.current = event.nativeEvent.layout.width;
-  };
 
   const handleQuickLimit = (amount) => {
     setCreditLimit(amount);
@@ -478,12 +474,12 @@ const createStyles = colors => StyleSheet.create({
     paddingVertical: spacing.sm,
     backgroundColor: colors.headerBg,
     borderBottomWidth: 1,
-    borderBottomColor: headerTexture.border,
+    borderBottomColor: colors.headerBorder,
     elevation: 2,
   },
   headerTopRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 64},
   backButton: {padding: 6},
-  headerTitle: {flex: 1, textAlign: 'center', fontSize: fontSize.large, fontWeight: fontWeight.semibold, color: headerTexture.title},
+  headerTitle: {flex: 1, textAlign: 'center', fontSize: fontSize.large, fontWeight: fontWeight.semibold, color: colors.headerText},
   headerSpacer: {width: 34},
 
   animatedContainer: {flex: 1},
