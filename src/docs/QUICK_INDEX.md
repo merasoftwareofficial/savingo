@@ -1,5 +1,28 @@
 # QUICK_INDEX
 
+## Default tab: Automatic (last used) + tab badge + long-press shortcut — 2026-10-13 (owner: "perfect")
+Goal: new users are not dropped on an empty Dashboard. The app opens the tab used last; new users start on Ledger Talk. Users can see and change the start tab from the tab bar itself.
+- **SSOT:** `src/utils/defaultTabPreference.js` (rewritten).
+  - Before: only Dashboard/Accounts/Ledger, fallback Dashboard; no last-used tab.
+  - Now: `DEFAULT_TAB_AUTO` ('Auto', also the fallback), `home_last_tab` + `recordLastUsedTab` / `readLastUsedTab`, `resolveTabForPreference`, `resolveStartupTab()` (Auto → last used tab → else `NEW_USER_TAB` = Ledger), `DEFAULT_TAB_OPTIONS`, `getDefaultTabLabel`, `getDefaultTabBadge` ('A' on the open tab in Auto, '✓' on the fixed tab, nothing on More), `registerOpenDayAndCheckHint` / `markDefaultTabHintSeen` (hint from the 3rd distinct open day, once).
+  - One-time migration inside `readDefaultTabPreference` (flag `home_default_tab.autoMigrated.v1`): every existing user → Auto; the old tab is copied to `home_last_tab`, so the first start after the update opens the same tab as before. It lives here because `startupOrchestrator` runs only on the very first install.
+- **Duplicated tab ternaries removed:**
+  - `MainTabNavigator.js` → `loadInitialTab` uses `normalizeStartupTabName` (notification override first, unchanged) + `resolveTabForPreference`.
+  - `notificationNavigationService.js` → `readNotificationDefaultTab` deleted; uses `resolveStartupTab()`.
+  - `SettingsScreen.js` → own `DEFAULT_TAB_OPTIONS`, `handleDefaultTabSelect`, inline sheet and `defaultTab*` styles removed; the row shows `getDefaultTabLabel`.
+- **New first-run value:** `src/services/startupOrchestrator.js` → `ensureMinimalPrefsDefaults` writes `Auto`. Before: wrote `Dashboard`, which would have made the migration treat a new user as an old Dashboard user.
+- **Shared picker:** new `src/components/DefaultTabSheet.js` ("Open app on", 4 options, saves + `queueBackupFromStorage`, reverts and alerts on error). Used by Settings and by the tab long-press.
+- **Tab bar:** `src/navigation/MainTabNavigator.js`.
+  - Badge via built-in `tabBarBadge` + `styles.defaultTabBadge`.
+  - `tabLongPress` on Dashboard/Accounts/Ledger → `Vibration.vibrate(15)` → sheet.
+  - `handleTabFocus` also sets `activeTab` and records the last used tab.
+  - The preference is re-read on Home `focus`, so a change in Settings updates the badge.
+  - Hint bubble above the tab bar, arrow on the badged tab; "Got it" or a long-press closes it for ever.
+- **Not changed:** notification `initialTabOverride` priority, `backBehavior="history"`, welcome popup, tutorial params, backup code. `dashboardResetService` still deletes the key, so a reset gives Automatic.
+- **Known limit:** restoring a pre-update backup on the *same* phone brings back the old fixed tab (✓), because the migration flag is already set there. The user can change it with a long-press. On a new phone the migration runs normally.
+- **Validation:** new `__tests__/default-tab.node.cjs` 11/11 (new user, migration of all 3 old tabs, migration once, Auto, reset, invalid values, badge, hint days). `delivery-foundation` 43/43. eslint counts unchanged (9 / 1 / 0 / 0 / 0). The use-before-declare scan is clean. Owner accepted ("perfect"); the device checklist was not reported step by step.
+- **Backup:** `../backup/fix21-default-tab`.
+
 ## Add contact opens chat; contact saved only on first data — 2026-10-13 (owner: "perfect")
 Goal: Add Contact opens the chat page at once; the contact enters the Ledger list only when the first chat message or ledger entry exists (like normal chat apps).
 - **Add Contact:** `src/screens/LedgerAddContactScreen.js` → `handleAddContact` (now async).

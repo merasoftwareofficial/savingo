@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {writeColorSchemePreference} from '../utils/darkModePreference';
 import {initializeCoreDatabases} from './dbLifecycleManager';
 import {
-  DEFAULT_TAB_DASHBOARD,
+  DEFAULT_TAB_AUTO,
   DEFAULT_TAB_STORAGE_KEY,
 } from '../utils/defaultTabPreference';
 import {
@@ -78,7 +78,7 @@ const ensureMinimalPrefsDefaults = async () => {
   });
   const tabValue = String(pairMap[DEFAULT_TAB_STORAGE_KEY] || '').trim();
   if (!tabValue) {
-    updates.push([DEFAULT_TAB_STORAGE_KEY, DEFAULT_TAB_DASHBOARD]);
+    updates.push([DEFAULT_TAB_STORAGE_KEY, DEFAULT_TAB_AUTO]);
   }
   const headerTextureId = String(pairMap[HEADER_TEXTURE_STORAGE_KEY] || '').trim();
   if (!headerTextureId) {

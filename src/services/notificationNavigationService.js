@@ -2,10 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {StackActions} from '@react-navigation/native';
 import {getContactName} from './ledgerDatabase';
 import {
-  DEFAULT_TAB_DASHBOARD,
-  DEFAULT_TAB_ACCOUNTS,
   DEFAULT_TAB_LEDGER,
-  readDefaultTabPreference,
+  resolveStartupTab,
 } from '../utils/defaultTabPreference';
 import {resolveConversationOpenIntent} from './chatSystem';
 import {ensureLedgerDatabaseReady} from './dbLifecycleManager';
@@ -435,17 +433,6 @@ const isSameLedgerContactTarget = (route, contact, payload) => {
   return Boolean(targetContactKey && targetContactKey === routeContactKey);
 };
 
-const readNotificationDefaultTab = async () => {
-  const preferred = await readDefaultTabPreference();
-  if (preferred === DEFAULT_TAB_LEDGER) {
-    return DEFAULT_TAB_LEDGER;
-  }
-  if (preferred === DEFAULT_TAB_ACCOUNTS) {
-    return DEFAULT_TAB_ACCOUNTS;
-  }
-  return DEFAULT_TAB_DASHBOARD;
-};
-
 const navigateToLedgerContact = async (navigationRef, contact, payload) => {
   const targetParams = buildLedgerContactRouteParams(contact, payload);
 
@@ -474,7 +461,7 @@ const resetToHomeAndLedgerContact = async (
   {source = 'unknown'} = {},
 ) => {
   const targetParams = buildLedgerContactRouteParams(contact, payload);
-  const defaultTab = await readNotificationDefaultTab();
+  const defaultTab = await resolveStartupTab();
 
   logRouter('reset-home-and-ledger-contact', {
     source,

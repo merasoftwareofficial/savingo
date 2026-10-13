@@ -21,23 +21,16 @@ import {runStrictEcoToggleFlow} from '../services/strictEcoCoordinator';
 import {resetDashboardData} from '../services/dashboardResetService';
 import {publishAccountsChanged} from '../services/accountsChangeBus';
 import {
-  DEFAULT_TAB_DASHBOARD,
-  DEFAULT_TAB_ACCOUNTS,
   DEFAULT_TAB_FALLBACK,
-  DEFAULT_TAB_LEDGER,
+  getDefaultTabLabel,
   readDefaultTabPreference,
-  writeDefaultTabPreference,
 } from '../utils/defaultTabPreference';
+import DefaultTabSheet from '../components/DefaultTabSheet';
 
 const MONTH_START_DAY_KEY = 'monthStartDay';
 const DASHBOARD_SHOW_SAVINGS_BALANCE_KEY = 'dashboard_show_savings_balance_in_net';
 const DASHBOARD_HIDE_SAVING_ACCOUNTS_KEY = 'dashboard_hide_saving_accounts';
 const MONTH_START_DAY_OPTIONS = Array.from({length: 28}, (_, index) => index + 1);
-const DEFAULT_TAB_OPTIONS = [
-  {label: 'Dashboard', value: DEFAULT_TAB_DASHBOARD},
-  {label: 'Accounts', value: DEFAULT_TAB_ACCOUNTS},
-  {label: 'Ledger', value: DEFAULT_TAB_LEDGER},
-];
 
 const COMMON_SETTINGS = [
   {id: 'language', title: 'Language', icon: 'globe-outline'},
@@ -223,26 +216,6 @@ const SettingsScreen = ({navigation}) => {
     });
   };
 
-  const handleDefaultTabSelect = async selectedTab => {
-    const previousDefaultTab = defaultTab;
-    const normalized =
-      selectedTab === DEFAULT_TAB_LEDGER
-        ? DEFAULT_TAB_LEDGER
-        : selectedTab === DEFAULT_TAB_ACCOUNTS
-        ? DEFAULT_TAB_ACCOUNTS
-        : DEFAULT_TAB_DASHBOARD;
-    setDefaultTab(normalized);
-    setDefaultTabModalVisible(false);
-    try {
-      await writeDefaultTabPreference(normalized);
-      queueBackupFromStorage();
-    } catch (error) {
-      console.error('Failed to save default tab:', error);
-      setDefaultTab(previousDefaultTab);
-      themedAlert('Error', 'Failed to update default tab.');
-    }
-  };
-
   const openResetDashboardFlow = () => {
     themedAlert(
       'Reset All Accounts Data?',
@@ -358,7 +331,7 @@ const SettingsScreen = ({navigation}) => {
               <Text style={styles.settingText}>Default Tab</Text>
             </View>
             <View style={styles.settingRight}>
-              <Text style={styles.settingValue}>{defaultTab}</Text>
+              <Text style={styles.settingValue}>{getDefaultTabLabel(defaultTab)}</Text>
               <Icon name="chevron-forward" size={20} color={colors.text.light} />
             </View>
           </TouchableOpacity>
@@ -509,37 +482,12 @@ const SettingsScreen = ({navigation}) => {
         </View>
       </BottomSheet>
 
-      <BottomSheet
+      <DefaultTabSheet
         visible={defaultTabModalVisible}
-        onClose={() => setDefaultTabModalVisible(false)}>
-        <View style={styles.sheetHeaderCentered}>
-          <Text style={styles.sheetTitleCentered}>Default Tab</Text>
-        </View>
-        <View style={styles.defaultTabList}>
-          {DEFAULT_TAB_OPTIONS.map(option => {
-            const isActive = option.value === defaultTab;
-            return (
-              <TouchableOpacity
-                key={option.value}
-                style={styles.defaultTabOption}
-                onPress={() => handleDefaultTabSelect(option.value)}>
-                <Text
-                  style={[
-                    styles.defaultTabOptionText,
-                    isActive && styles.defaultTabOptionTextActive,
-                  ]}>
-                  {option.label}
-                </Text>
-                <Icon
-                  name={isActive ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={20}
-                  color={isActive ? colors.primary : colors.text.light}
-                />
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </BottomSheet>
+        value={defaultTab}
+        onClose={() => setDefaultTabModalVisible(false)}
+        onChanged={setDefaultTab}
+      />
 
       <DestructiveCaptchaModal
         visible={resetModalVisible}
@@ -715,26 +663,6 @@ const createStyles = colors => StyleSheet.create({
   },
   dayTextActive: {
     fontWeight: fontWeight.bold,
-    color: colors.primary,
-  },
-  defaultTabList: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  defaultTabOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  defaultTabOptionText: {
-    fontSize: fontSize.regular,
-    color: colors.text.primary,
-  },
-  defaultTabOptionTextActive: {
-    fontWeight: fontWeight.semibold,
     color: colors.primary,
   },
 });
