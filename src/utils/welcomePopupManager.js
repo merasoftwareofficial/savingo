@@ -1,65 +1,76 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const SESSION_COUNT_KEY = 'welcome.sessionCount.v1';
-const PERMANENTLY_DISMISSED_KEY = 'welcome.permanentlyDismissed.v1';
-const MAX_SESSIONS = 2;
+// Decides which first-run popup the home tabs show:
+// - 'intro'   : 3-slide app intro, once, on a new install's first start.
+// - 'devNote' : "A note from the developer" (review request), once, 7+ days
+//               after the first start.
+// Users who saw the old welcome popup get neither again.
 
-// Which tab screen to show popup on, per session number
-const SESSION_TARGET = {
-  1: 'Dashboard',
-  2: 'Ledger',
-};
+const LEGACY_SESSION_COUNT_KEY = 'welcome.sessionCount.v1';
+const LEGACY_DISMISSED_KEY = 'welcome.permanentlyDismissed.v1';
+const INTRO_SEEN_KEY = 'welcome.introSeen.v1';
+const DEV_NOTE_SHOWN_KEY = 'welcome.devNoteShown.v1';
+const FIRST_OPEN_AT_KEY = 'welcome.firstOpenAt.v1';
 
-// In-memory flag — reset on each JS bundle load (i.e. each app session)
-let _shownThisSession = false;
+export const WELCOME_KIND_INTRO = 'intro';
+export const WELCOME_KIND_DEV_NOTE = 'devNote';
+export const DEV_NOTE_DELAY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Call once at app start (e.g. in MainTabNavigator mount).
- * Increments session counter and returns whether/where to show the popup.
- *
- * Returns:
- *   { shouldShow: false }                        — never show
- *   { shouldShow: true, targetTab: 'Dashboard' } — show on this tab
+ * Call once when the home tabs mount.
+ * Returns {kind: 'intro' | 'devNote' | null}.
  */
-export async function initWelcomePopup() {
+export async function initWelcomePopup(now = Date.now()) {
   try {
-    const dismissed = await AsyncStorage.getItem(PERMANENTLY_DISMISSED_KEY);
-    if (dismissed === 'true') {
-      return {shouldShow: false};
+    const pairs = await AsyncStorage.multiGet([
+      LEGACY_SESSION_COUNT_KEY,
+      LEGACY_DISMISSED_KEY,
+      INTRO_SEEN_KEY,
+      DEV_NOTE_SHOWN_KEY,
+      FIRST_OPEN_AT_KEY,
+    ]);
+    const values = Object.fromEntries(pairs);
+    const legacyCount = parseInt(values[LEGACY_SESSION_COUNT_KEY] || '0', 10) || 0;
+    const isLegacyUser = legacyCount >= 1 || values[LEGACY_DISMISSED_KEY] === 'true';
+    const introSeen = values[INTRO_SEEN_KEY] === 'true';
+    const devNoteShown = values[DEV_NOTE_SHOWN_KEY] === 'true';
+
+    if (isLegacyUser && (!introSeen || !devNoteShown)) {
+      await AsyncStorage.multiSet([
+        [INTRO_SEEN_KEY, 'true'],
+        [DEV_NOTE_SHOWN_KEY, 'true'],
+      ]);
+      return {kind: null};
     }
 
-    const countStr = await AsyncStorage.getItem(SESSION_COUNT_KEY);
-    const prevCount = parseInt(countStr || '0', 10);
-
-    if (prevCount >= MAX_SESSIONS) {
-      return {shouldShow: false};
+    let firstOpenAt = Number(values[FIRST_OPEN_AT_KEY]) || 0;
+    if (!firstOpenAt) {
+      firstOpenAt = now;
+      await AsyncStorage.setItem(FIRST_OPEN_AT_KEY, String(firstOpenAt));
     }
 
-    const newCount = prevCount + 1;
-    await AsyncStorage.setItem(SESSION_COUNT_KEY, String(newCount));
-
-    return {
-      shouldShow: true,
-      targetTab: SESSION_TARGET[newCount] || 'Dashboard',
-    };
+    if (!introSeen) {
+      return {kind: WELCOME_KIND_INTRO};
+    }
+    if (!devNoteShown && now - firstOpenAt >= DEV_NOTE_DELAY_MS) {
+      return {kind: WELCOME_KIND_DEV_NOTE};
+    }
+    return {kind: null};
   } catch {
-    return {shouldShow: false};
+    return {kind: null};
   }
 }
 
-/** Call when user taps the Play Store button — popup never shows again. */
-export async function markPermanentlyDismissed() {
+/** Call when the intro is closed (Start or Skip). */
+export async function markIntroSeen() {
   try {
-    await AsyncStorage.setItem(PERMANENTLY_DISMISSED_KEY, 'true');
+    await AsyncStorage.setItem(INTRO_SEEN_KEY, 'true');
   } catch {}
 }
 
-/** Call right before showing popup so it doesn't show twice in same session. */
-export function markShownThisSession() {
-  _shownThisSession = true;
-}
-
-/** Returns true if popup was already shown this session. */
-export function hasShownThisSession() {
-  return _shownThisSession;
+/** Call when the developer note is shown, so it appears only once. */
+export async function markDevNoteShown() {
+  try {
+    await AsyncStorage.setItem(DEV_NOTE_SHOWN_KEY, 'true');
+  } catch {}
 }

@@ -666,7 +666,7 @@ function AppContent() {
         });
       }
 
-      if (routeName === 'PreparingApp' || routeName === 'ProfileSetup') {
+      if (routeName === 'PreparingApp') {
         navigationRef.resetRoot({
           index: 0,
           routes: [{name: routeName, params: {user: userPayload}}],

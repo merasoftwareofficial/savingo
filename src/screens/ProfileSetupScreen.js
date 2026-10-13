@@ -150,33 +150,6 @@ const ProfileSetupScreen = ({navigation, route}) => {
   const [isUsernameFocused, setIsUsernameFocused] = React.useState(false);
   const [isCountryInteracted, setIsCountryInteracted] = React.useState(false);
   const [isPhoneFocused, setIsPhoneFocused] = React.useState(false);
-  const getProfileSetupSkipKey = React.useCallback(
-    firebaseUid => `profileSetup.skipped.${String(firebaseUid || '').trim()}`,
-    [],
-  );
-
-  const setProfileSetupSkippedFlag = React.useCallback(
-    async firebaseUid => {
-      const uid = String(firebaseUid || '').trim();
-      if (!uid) {
-        return;
-      }
-      await AsyncStorage.setItem(getProfileSetupSkipKey(uid), 'true');
-    },
-    [getProfileSetupSkipKey],
-  );
-
-  const clearProfileSetupSkippedFlag = React.useCallback(
-    async firebaseUid => {
-      const uid = String(firebaseUid || '').trim();
-      if (!uid) {
-        return;
-      }
-      await AsyncStorage.removeItem(getProfileSetupSkipKey(uid));
-    },
-    [getProfileSetupSkipKey],
-  );
-
   React.useEffect(() => {
     if (!showManualOccupationEditor) {
       return;
@@ -770,7 +743,6 @@ const ProfileSetupScreen = ({navigation, route}) => {
         restoreDecisionPending: false,
         postLoginRequiredRoute: 'Home',
       });
-      await clearProfileSetupSkippedFlag(firebaseUid);
       queueBackupFromStorage();
       initialCountryRef.current = resolvedCountryForSubmit;
       PROFILE_SETUP_LOG('submit:success', {
@@ -952,7 +924,6 @@ const ProfileSetupScreen = ({navigation, route}) => {
         ...storedUser,
         ...currentUser,
         setupComplete: false,
-        profileSetupSkipped: true,
       };
       setCurrentUser(updatedUser);
       await writeCachedSessionUser(updatedUser);
@@ -961,9 +932,6 @@ const ProfileSetupScreen = ({navigation, route}) => {
         restoreDecisionPending: false,
         postLoginRequiredRoute: 'Home',
       });
-      const firebaseUid =
-        updatedUser?.firebaseUid || (await AsyncStorage.getItem('firebaseUid'));
-      await setProfileSetupSkippedFlag(firebaseUid);
 
       if (isFromMore) {
         if (navigation.canGoBack()) {

@@ -41,10 +41,13 @@ import DefaultTabSheet from '../components/DefaultTabSheet';
 import {getNotificationPermissionSnapshot} from '../services/chatNotificationV2Service';
 import notifee from '@notifee/react-native';
 import WelcomePopup from '../components/WelcomePopup';
+import IntroSlides from '../components/IntroSlides';
 import {
+  WELCOME_KIND_DEV_NOTE,
+  WELCOME_KIND_INTRO,
   initWelcomePopup,
-  markShownThisSession,
-  hasShownThisSession,
+  markDevNoteShown,
+  markIntroSeen,
 } from '../utils/welcomePopupManager';
 import {perfLog, perfNow} from '../utils/perfLogger';
 import {getResolvedHeaderTextureTheme} from '../utils/headerTextureTheme';
@@ -69,7 +72,6 @@ const MainTabNavigator = ({route, navigation}) => {
   const {
     user: initialUser,
     showTutorial,
-    suppressSetupPopupOnce = false,
     initialTabOverride = '',
   } = route.params || {};
   const {themeId: tabTextureId} = useHeaderTextureTheme();
@@ -89,7 +91,9 @@ const MainTabNavigator = ({route, navigation}) => {
   const {width: windowWidth} = useWindowDimensions();
   const [isInitialTabReady, setIsInitialTabReady] = useState(false);
   const [welcomePopupVisible, setWelcomePopupVisible] = useState(false);
-  const [welcomeTargetTab, setWelcomeTargetTab] = useState(null);
+  // undefined = not decided yet, null = nothing to show this session.
+  const [welcomeKind, setWelcomeKind] = useState(undefined);
+  const [introVisible, setIntroVisible] = useState(false);
   const tabPressAtRef = useRef({});
   const ledgerPrewarmScheduledRef = useRef(false);
   const baseTabBarStyle = {
@@ -122,7 +126,8 @@ const MainTabNavigator = ({route, navigation}) => {
   }, [initialUser, sessionUser?.firebaseUid, updateSessionUser]);
 
   useEffect(() => {
-    if (!isInitialTabReady) {
+    // Ask for notifications only after the first-start intro is closed.
+    if (!isInitialTabReady || welcomeKind === undefined || welcomeKind === WELCOME_KIND_INTRO) {
       return;
     }
 
@@ -171,7 +176,7 @@ const MainTabNavigator = ({route, navigation}) => {
       isMounted = false;
       clearTimeout(promptTimer);
     };
-  }, [isInitialTabReady]);
+  }, [isInitialTabReady, welcomeKind]);
 
   useEffect(() => {
     const startAt = perfNow();
@@ -192,6 +197,8 @@ const MainTabNavigator = ({route, navigation}) => {
           return;
         }
         setInitialTab(normalizedOverride);
+        // The opening tab's own focus event is not received here; seed it.
+        setActiveTab(normalizedOverride);
         setIsInitialTabReady(true);
         return;
       }
@@ -201,6 +208,7 @@ const MainTabNavigator = ({route, navigation}) => {
       }
       const resolvedTab = resolveTabForPreference(preference, lastUsedTab);
       setInitialTab(resolvedTab);
+      setActiveTab(resolvedTab);
       perfLog('main-tabs', 'initial-tab:resolved', {
         tab: resolvedTab,
         durationMs: Math.max(0, perfNow() - startAt),
@@ -280,12 +288,12 @@ const MainTabNavigator = ({route, navigation}) => {
     });
   }, []);
 
-  // Welcome popup — init once on mount
+  // First-start intro / developer note — decided once on mount
   useEffect(() => {
     let isMounted = true;
     initWelcomePopup().then(result => {
-      if (isMounted && result.shouldShow) {
-        setWelcomeTargetTab(result.targetTab);
+      if (isMounted) {
+        setWelcomeKind(result.kind);
       }
     });
     return () => {
@@ -293,18 +301,32 @@ const MainTabNavigator = ({route, navigation}) => {
     };
   }, []);
 
+  // Show it on whichever tab opened, once the tabs are ready.
+  useEffect(() => {
+    if (!isInitialTabReady || !welcomeKind) {
+      return () => {};
+    }
+    const showTimer = setTimeout(() => {
+      if (welcomeKind === WELCOME_KIND_INTRO) {
+        setIntroVisible(true);
+      } else if (welcomeKind === WELCOME_KIND_DEV_NOTE) {
+        markDevNoteShown();
+        setWelcomePopupVisible(true);
+      }
+    }, 400);
+    return () => clearTimeout(showTimer);
+  }, [isInitialTabReady, welcomeKind]);
+
+  const handleIntroDone = useCallback(() => {
+    setIntroVisible(false);
+    markIntroSeen();
+    setWelcomeKind(null);
+  }, []);
+
   const handleTabFocus = useCallback((tabName) => {
     setActiveTab(tabName);
     recordLastUsedTab(tabName);
-    if (
-      welcomeTargetTab &&
-      tabName === welcomeTargetTab &&
-      !hasShownThisSession()
-    ) {
-      markShownThisSession();
-      setWelcomePopupVisible(true);
-    }
-  }, [welcomeTargetTab]);
+  }, []);
 
   useEffect(() => {
     if (!isInitialTabReady) {
@@ -450,7 +472,7 @@ const MainTabNavigator = ({route, navigation}) => {
         <Tab.Screen
           name="Accounts"
           component={DashboardStackNavigator}
-          initialParams={{user, showTutorial, suppressSetupPopupOnce}}
+          initialParams={{user, showTutorial}}
           options={{
             tabBarLabel: 'Accounts',
             ...getTabBadgeOptions('Accounts'),
@@ -544,6 +566,7 @@ const MainTabNavigator = ({route, navigation}) => {
         onClose={() => setDefaultTabSheetVisible(false)}
         onChanged={setDefaultTabPreference}
       />
+      <IntroSlides visible={introVisible} onDone={handleIntroDone} />
       <WelcomePopup
         visible={welcomePopupVisible}
         onDismiss={handleWelcomeDismiss}

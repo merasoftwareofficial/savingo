@@ -9,12 +9,8 @@ export const isBackupEligibleUser = user => {
   return isProfileSetupComplete(user) && username.length > 0;
 };
 
-export const getPostLoginRequiredRoute = user =>
-  requiresProfileSetup(user) ? 'ProfileSetup' : 'Home';
-
 export default {
   isProfileSetupComplete,
   requiresProfileSetup,
   isBackupEligibleUser,
-  getPostLoginRequiredRoute,
 };

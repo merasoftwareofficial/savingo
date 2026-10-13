@@ -1,12 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {ensureCoreDatabasesReady} from './dbLifecycleManager';
-import {getPostLoginRequiredRoute} from '../utils/profileReadiness';
 import {readCachedSessionUser} from './sessionService';
 import {getBackupProfileGateState} from '../utils/profileSetupGate';
 
 export const POST_LOGIN_REQUIRED_ROUTE_KEY = 'auth.requiredRouteAfterLogin';
 export const BACKUP_RESTORE_PENDING_KEY = 'backup.restorePending';
-const PROFILE_SETUP_SKIP_KEY_PREFIX = 'profileSetup.skipped.';
 export const STARTUP_READINESS_INVARIANTS = Object.freeze({
   accountsVisibleWithoutRestart: 'startup.accounts.visible_without_restart',
   themeAppliedWithoutRestart: 'startup.theme.applied_without_restart',
@@ -31,25 +29,13 @@ export const hasResolvedStartupUserPayload = payload =>
 
 const normalizeRouteName = routeName => String(routeName || '').trim();
 
-const isExplicitStartupRoute = routeName =>
-  normalizeRouteName(routeName) === 'Home' ||
-  normalizeRouteName(routeName) === 'ProfileSetup';
+// Signed-in users always open the app. Profile setup is never forced at login:
+// it is reached from the "Profile setup pending" ribbon, the Ledger add-contact
+// prompt or More > Profile Settings. Older stored values ('ProfileSetup') are
+// therefore ignored.
+export const POST_LOGIN_ROUTE = 'Home';
 
-export const getResolvedStartupRequiredRoute = ({
-  userPayload,
-  postLoginRequiredRoute = '',
-}) => {
-  const explicitRoute = normalizeRouteName(postLoginRequiredRoute);
-  if (isExplicitStartupRoute(explicitRoute)) {
-    return explicitRoute;
-  }
-
-  if (userPayload?.profileSetupSkipped === true) {
-    return 'Home';
-  }
-
-  return getPostLoginRequiredRoute(userPayload || {});
-};
+export const getResolvedStartupRequiredRoute = () => POST_LOGIN_ROUTE;
 
 export const getStartupSessionFlags = async () => {
   try {
@@ -87,13 +73,6 @@ export const resolveStartupSessionFlagsForUser = async ({
     return {
       requiredRoute,
       restoreDecisionPending: restoreDecisionPending === true,
-    };
-  }
-
-  if (requiredRoute !== 'Home') {
-    return {
-      requiredRoute,
-      restoreDecisionPending: false,
     };
   }
 
@@ -147,7 +126,8 @@ export const clearStartupStateForLogout = async ({firebaseUid} = {}) => {
   const uid = String(firebaseUid || '').trim();
   const keys = [BACKUP_RESTORE_PENDING_KEY, POST_LOGIN_REQUIRED_ROUTE_KEY];
   if (uid) {
-    keys.push(`${PROFILE_SETUP_SKIP_KEY_PREFIX}${uid}`);
+    // Legacy per-user "Set Up Later" flag; no longer written, removed on logout.
+    keys.push(`profileSetup.skipped.${uid}`);
   }
   await AsyncStorage.multiRemove(keys);
 };
@@ -193,7 +173,7 @@ export const resolveStartupTargetRoute = ({
     userPayload,
     postLoginRequiredRoute,
   });
-  const needsPreparingRoute = restoreDecisionPending && requiredRoute === 'Home';
+  const needsPreparingRoute = restoreDecisionPending === true;
 
   if (isPlaceholderRoute && !hasUserPayload) {
     return {waitForUserPayload: true};
@@ -219,8 +199,8 @@ export const resolveStartupTargetRoute = ({
     : isPlaceholderRoute;
 
   const readinessIntents = {
-    needsAccountBootstrap: requiredRoute === 'Home',
-    needsThemeHydration: requiredRoute === 'Home',
+    needsAccountBootstrap: true,
+    needsThemeHydration: true,
     invariants: STARTUP_READINESS_INVARIANTS,
   };
 

@@ -11,6 +11,7 @@ import {
   HEADER_TEXTURE_STORAGE_KEY,
 } from '../utils/headerTextureTheme';
 import {perfLog, perfNow} from '../utils/perfLogger';
+import {FRESH_INSTALL_DISMISSED_NOTICE_KEYS} from '../utils/featureNotices';
 
 export const FIRST_RUN_ORCHESTRATOR_ENABLED = true;
 
@@ -94,6 +95,10 @@ const ensureFirstRunFlags = async () => {
   if (value == null) {
     await AsyncStorage.setItem('home.notificationPermissionPrompt.v1', 'false');
   }
+  // "Now available" notices are for users who had the app before; a new install skips them.
+  await AsyncStorage.multiSet(
+    FRESH_INSTALL_DISMISSED_NOTICE_KEYS.map(key => [key, 'true']),
+  );
 };
 
 const ensureCoreDatabasesInitialized = async () => {

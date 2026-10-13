@@ -6,7 +6,7 @@ import AllAccountsScreen from '../screens/AllAccountsScreen';
 const Stack = createStackNavigator();
 
 const DashboardStackNavigator = ({route}) => {
-  const {user, showTutorial, suppressSetupPopupOnce = false} = route.params || {};
+  const {user, showTutorial} = route.params || {};
 
   return (
     <Stack.Navigator
@@ -18,7 +18,7 @@ const DashboardStackNavigator = ({route}) => {
       <Stack.Screen
         name="AccountsHome"
         component={AllAccountsScreen}
-        initialParams={{user, showTutorial, suppressSetupPopupOnce}}
+        initialParams={{user, showTutorial}}
       />
     </Stack.Navigator>
   );

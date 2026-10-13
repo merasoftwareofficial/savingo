@@ -53,8 +53,7 @@ import {
   calculateAccountsNetBalance,
   getNetBalanceLabel,
 } from '../utils/dashboardNetBalance';
-import {requiresProfileSetup} from '../utils/profileReadiness';
-import {readCachedSessionUser} from '../services/sessionService';
+import {CREDIT_CARD_NOTICE_DISMISSED_KEY} from '../utils/featureNotices';
 import {
   calculateAccountsPeriodData,
   getMonthYearRange,
@@ -80,7 +79,6 @@ const EXPENSES_SHOW_TRANSFER_ENTRIES_KEY_PREFIX = 'expensesShowTransferEntries';
 const DASHBOARD_DATA_CHANGED_EVENT = 'dashboard:dataChanged';
 const SOFT_REFRESH_MIN_INTERVAL_MS = 500;
 const SOFT_REFRESH_INDICATOR_MIN_MS = 600;
-const CREDIT_CARD_NOTICE_DISMISSED_KEY = 'creditCardAccounts.noticeDismissed.v1';
 
 const readAllTransactionsWithPerf = (dashboardPerf, stage) => {
   const startedAt = perfNow();
@@ -173,21 +171,9 @@ const AllAccountsScreen = ({navigation, route}) => {
   const fabIconColor = colors.white;
   const fabThemeColor = themeAccent.accentSelection || themeAccent.accentPrimary;
 
-  // Setup completion popup states
-  const [showSetupPopup, setShowSetupPopup] = useState(false);
-  const [popupDismissedThisSession, setPopupDismissedThisSession] =
-    useState(false);
-  const [startupNeverShowChecked, setStartupNeverShowChecked] = useState(false);
-  const [showStartupNeverShowCheckbox, setShowStartupNeverShowCheckbox] =
-    useState(false);
   const [showCreditCardNotice, setShowCreditCardNotice] = useState(false);
   const [creditCardNoticeDontShow, setCreditCardNoticeDontShow] =
     useState(false);
-  const startupNeverShowKeyRef = useRef('');
-  const startupPopupShowCountKeyRef = useRef('');
-  const suppressSetupPopupOnceRef = useRef(
-    route?.params?.suppressSetupPopupOnce === true
-  );
   const lastDashboardRefreshAtRef = useRef(0);
   const transferEntriesPreferenceRef = useRef({});
   const transferPrefLoadTimerRef = useRef(null);
@@ -701,44 +687,6 @@ const AllAccountsScreen = ({navigation, route}) => {
     return () => clearTimeout(timer);
   }, [renameModalVisible, focusRenameInput]);
 
-  const hasBasicDetails = userData => {
-    const name = String(userData?.displayName || userData?.name || '').trim();
-    const phone = String(
-      userData?.phoneNumber || userData?.mobile || ''
-    ).trim();
-    const currency = String(
-      userData?.currencySymbol ||
-        userData?.currency ||
-        userData?.currency_symbol ||
-        ''
-    ).trim();
-    return Boolean(name) && Boolean(phone) && Boolean(currency);
-  };
-
-  const getStartupNeverShowKey = userData => {
-    const firebaseUid = String(userData?.firebaseUid || '').trim();
-    if (firebaseUid) {
-      return `startupSetupPopup.neverShow.${firebaseUid}`;
-    }
-    const email = String(userData?.email || '').trim().toLowerCase();
-    if (email) {
-      return `startupSetupPopup.neverShow.${email}`;
-    }
-    return '';
-  };
-
-  const getStartupPopupShowCountKey = userData => {
-    const firebaseUid = String(userData?.firebaseUid || '').trim();
-    if (firebaseUid) {
-      return `startupSetupPopup.showCount.${firebaseUid}`;
-    }
-    const email = String(userData?.email || '').trim().toLowerCase();
-    if (email) {
-      return `startupSetupPopup.showCount.${email}`;
-    }
-    return '';
-  };
-
   useEffect(() => {
     let cancelled = false;
     const checkCreditCardNotice = async () => {
@@ -767,92 +715,6 @@ const AllAccountsScreen = ({navigation, route}) => {
       cancelled = true;
     };
   }, [creditAccounts.length, isInitialDashboardLoading]);
-
-  // Check setup completion status on screen focus
-  useFocusEffect(
-    React.useCallback(() => {
-      const checkSetupStatus = async () => {
-        try {
-          if (suppressSetupPopupOnceRef.current) {
-            suppressSetupPopupOnceRef.current = false;
-            setShowSetupPopup(false);
-            setPopupDismissedThisSession(true);
-            return;
-          }
-          const userData = await readCachedSessionUser();
-          if (Object.keys(userData || {}).length > 0) {
-            const neverShowKey = getStartupNeverShowKey(userData);
-            const showCountKey = getStartupPopupShowCountKey(userData);
-            startupNeverShowKeyRef.current = neverShowKey;
-            startupPopupShowCountKeyRef.current = showCountKey;
-            const neverShowValue = neverShowKey
-              ? await AsyncStorage.getItem(neverShowKey)
-              : null;
-            const neverShowEnabled = neverShowValue === 'true';
-            setStartupNeverShowChecked(neverShowEnabled);
-            if (neverShowEnabled) {
-              setShowSetupPopup(false);
-              setShowStartupNeverShowCheckbox(false);
-              return;
-            }
-            const missingDetails = !hasBasicDetails(userData);
-            if (
-              requiresProfileSetup(userData) &&
-              missingDetails &&
-              !popupDismissedThisSession
-            ) {
-              let nextShowCount = 1;
-              if (showCountKey) {
-                const rawCount = await AsyncStorage.getItem(showCountKey);
-                const parsedCount =
-                  Number.parseInt(String(rawCount || '0'), 10) || 0;
-                nextShowCount = parsedCount + 1;
-                await AsyncStorage.setItem(showCountKey, String(nextShowCount));
-              }
-              setShowStartupNeverShowCheckbox(nextShowCount >= 3);
-              setShowSetupPopup(true);
-            } else {
-              setShowStartupNeverShowCheckbox(false);
-            }
-          }
-        } catch (error) {
-          console.error('Error checking setup status:', error);
-        }
-      };
-
-      checkSetupStatus();
-    }, [popupDismissedThisSession])
-  );
-
-  const handleToggleStartupNeverShow = async () => {
-    const nextValue = !startupNeverShowChecked;
-    setStartupNeverShowChecked(nextValue);
-    try {
-      const key = startupNeverShowKeyRef.current;
-      if (!key) {
-        return;
-      }
-      await AsyncStorage.setItem(key, nextValue ? 'true' : 'false');
-    } catch (error) {
-      console.error('Failed to save startup popup never-show preference:', error);
-    }
-  };
-
-  const handleOpenProfileSetup = async () => {
-    setShowSetupPopup(false);
-    try {
-      const parsedUser = await readCachedSessionUser();
-      navigation.navigate('ProfileSetup', {user: parsedUser || {}});
-    } catch (error) {
-      console.error('Failed to open profile setup from startup popup:', error);
-      navigation.navigate('ProfileSetup', {user: {}});
-    }
-  };
-
-  const handleRemindLater = () => {
-    setShowSetupPopup(false);
-    setPopupDismissedThisSession(true);
-  };
 
   const handleToggleCreditCardNoticeDontShow = () => {
     setCreditCardNoticeDontShow(prev => !prev);
@@ -1839,22 +1701,7 @@ const AllAccountsScreen = ({navigation, route}) => {
       />
 
       <SetupRequirePopup
-        visible={showSetupPopup}
-        title="Complete your basic details"
-        description="Finish profile setup to unlock all features of app."
-        primaryText="Update Profile Setup"
-        secondaryText="Remind me later"
-        showNeverShowCheckbox={showStartupNeverShowCheckbox}
-        neverShowChecked={startupNeverShowChecked}
-        neverShowLabel="Never show this msg again"
-        onNeverShowToggle={handleToggleStartupNeverShow}
-        onPrimaryPress={handleOpenProfileSetup}
-        onSecondaryPress={handleRemindLater}
-        onClose={handleRemindLater}
-      />
-
-      <SetupRequirePopup
-        visible={showCreditCardNotice && !showSetupPopup}
+        visible={showCreditCardNotice}
         title="Credit Card Accounts are now available"
         description="You can now create and manage your credit card accounts from Add Account."
         primaryText="OK"
